@@ -7,6 +7,6 @@ pub struct Args {
     #[arg(short)]
     pub size: usize,
     /// Number of parallel processing threads
-    #[arg(short, default_value_t = 4)]
+    #[arg(short, default_value_t = 1)]
     pub num_threads: usize,
 }

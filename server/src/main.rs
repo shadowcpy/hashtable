@@ -1,4 +1,4 @@
-use std::{process::exit, thread};
+use std::{hint, process::exit, thread};
 
 use anyhow::bail;
 use clap::Parser;
@@ -8,15 +8,15 @@ use rustix::{
     shm::{self, OFlags},
 };
 
+pub mod cli;
+pub mod hash_table;
+
 use cli::Args;
 use hash_table::HashTable;
 use shared::{
     sema_getvalue, CheckOk, RequestFrame, RequestPayload, ResponseData, ResponseFrame,
     ResponsePayload, SharedRequest, SharedResponse, MAGIC_VALUE, SHM_REQUEST, SHM_RESPONSE,
 };
-
-pub mod cli;
-pub mod hash_table;
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -50,17 +50,22 @@ fn main() -> anyhow::Result<()> {
     // Responses (output)
     unsafe {
         sem_init(os.readers, 1, 1).r("init_global")?;
-        sem_init(os.start, 1, 0).r("init_waker")?;
-        sem_init(os.end, 1, 0).r("init_reader")?;
-        sem_init(os.end_ack, 1, 0).r("init_reader")?;
+        sem_init(os.barrier1, 1, 0).r("init_barrier1")?;
+        sem_init(os.barrier2, 1, 1).r("init_barrier1")?;
+        sem_init(os.read_complete, 1, 0).r("init_read_complete")?;
+        sem_init(os.write_complete, 1, 0).r("init_write_complete")?;
+        sem_init(os.count_mutex, 1, 1).r("init_count_mutex")?;
     }
 
     unsafe {
         (*os.num_readers) = 0;
+        (*os.count) = 0;
 
         (*is.magic) = MAGIC_VALUE;
         (*os.magic) = MAGIC_VALUE;
     }
+
+    println!("Initialized [{} -> {}]", SHM_REQUEST, SHM_RESPONSE);
 
     ctrlc::set_handler(move || {
         shm::unlink(SHM_REQUEST).unwrap();
@@ -71,23 +76,23 @@ fn main() -> anyhow::Result<()> {
     let (snd_in, input) = crossbeam_channel::unbounded();
     let (snd_out, output) = crossbeam_channel::unbounded();
 
+    println!("Server is ready to accept connections");
+
     thread::scope(|s| {
         let input_thread = s.spawn(move || {
             let is = is;
             loop {
                 unsafe {
-                    dbg!(sem_wait(is.waker)).r("wait_waker")?;
+                    sem_wait(is.waker).r("wait_waker")?;
                     let data = *is.data;
 
                     debug_assert_eq!(sema_getvalue(is.waker).unwrap(), 0);
-                    println!("ADD {data:?} to queue");
 
                     snd_in.send(data).unwrap();
 
-                    if dbg!(sem_post(is.busy)) != 0 {
+                    if sem_post(is.busy) != 0 {
                         bail!("post_busy");
                     }
-                    println!("RCV {data:?}");
                 }
             }
         });
@@ -96,40 +101,28 @@ fn main() -> anyhow::Result<()> {
             let os = os;
             loop {
                 let next_message = output.recv().unwrap();
-                println!("SND {next_message:?}");
 
                 unsafe {
                     // Lock join / leave
-                    dbg!(sem_wait(os.readers)).r("wait_readers")?;
-                    // Get current participants
+                    sem_wait(os.readers).r("wait_readers")?;
+                    // Get current number of readers
                     let nr = os.num_readers.read_volatile();
                     // Send data
                     os.data.write_volatile(next_message);
 
-                    // Wake up all current participants for reading
+                    // Wake up all readers
                     for _ in 0..nr {
-                        dbg!(sem_post(os.start)).r("post_start")?;
+                        sem_post(os.write_complete).r("post_wc")?;
                     }
-                    // Wait until all current participants have finished reading
-                    for _ in 0..nr {
-                        dbg!(sem_wait(os.end)).r("wait_end")?;
+                    // If there is at least one reader, wait for the barrier finalization signal / thread
+                    if nr > 0 {
+                        sem_wait(os.read_complete).r("wait_rc")?;
                     }
-                    debug_assert_eq!(sema_getvalue(os.end).unwrap(), 0);
-                    debug_assert_eq!(sema_getvalue(os.end_ack).unwrap(), 0);
-                    // Acknowledge the end of the cycle (unlock clients)
-                    for _ in 0..nr {
-                        dbg!(sem_post(os.end_ack)).r("post_endack")?;
-                    }
-                    while sema_getvalue(os.end_ack).r("gv_endack")? > 0 {}
-                    debug_assert_eq!(sema_getvalue(os.start).unwrap(), 0);
-
                     // Unlock join / leave
-                    if dbg!(sem_post(os.readers)) != 0 {
+                    if sem_post(os.readers) != 0 {
                         bail!("post_readers");
                     }
                 }
-
-                println!("---------------------------");
             }
         });
 

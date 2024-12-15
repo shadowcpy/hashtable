@@ -6,9 +6,10 @@ use std::{
 };
 
 use anyhow::bail;
-use libc::{__errno_location, c_int, sem_getvalue, sem_t, sem_timedwait, timespec};
-use macros::get_field_ptr;
+use libc::{__errno_location, c_int, sem_getvalue, sem_t, sem_timedwait, sem_trywait, timespec};
 use rustix::mm::{mmap, MapFlags, ProtFlags};
+
+use macros::get_field_ptr;
 
 pub const MAGIC_VALUE: u32 = 0x77256810;
 pub const SHM_REQUEST: &str = "/hashtable_req";
@@ -37,36 +38,6 @@ pub enum RequestPayload {
     Insert(u32, u32),
     ReadBucket(u32),
     Delete(u32),
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct ResponseFrame {
-    readers: sem_t,
-    magic: u32,
-    num_readers: u32,
-    start: sem_t,
-    end: sem_t,
-    end_ack: sem_t,
-    data: ResponseData,
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct ResponseData {
-    pub client_id: u32,
-    pub request_id: u32,
-    pub payload: ResponsePayload,
-}
-
-#[repr(C, u8)]
-#[derive(Debug, Copy, Clone)]
-pub enum ResponsePayload {
-    Inserted(u32),
-    BucketContent { len: usize, data: [(u32, u32); 32] },
-    Deleted,
-    NotFound,
-    Overflow,
 }
 
 pub struct SharedRequest {
@@ -106,13 +77,49 @@ impl SharedRequest {
     }
 }
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct ResponseFrame {
+    magic: u32,
+    readers: sem_t,
+    num_readers: u32,
+    barrier1: sem_t,
+    barrier2: sem_t,
+    read_complete: sem_t,
+    write_complete: sem_t,
+    count_mutex: sem_t,
+    count: u32,
+    data: ResponseData,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct ResponseData {
+    pub client_id: u32,
+    pub request_id: u32,
+    pub payload: ResponsePayload,
+}
+
+#[repr(C, u8)]
+#[derive(Debug, Copy, Clone)]
+pub enum ResponsePayload {
+    Inserted(u32),
+    BucketContent { len: usize, data: [(u32, u32); 32] },
+    Deleted,
+    NotFound,
+    Overflow,
+}
+
 pub struct SharedResponse {
     pub magic: *mut u32,
     pub readers: *mut sem_t,
     pub num_readers: *mut u32,
-    pub start: *mut sem_t,
-    pub end: *mut sem_t,
-    pub end_ack: *mut sem_t,
+    pub barrier1: *mut sem_t,
+    pub barrier2: *mut sem_t,
+    pub read_complete: *mut sem_t,
+    pub write_complete: *mut sem_t,
+    pub count_mutex: *mut sem_t,
+    pub count: *mut u32,
     pub data: *mut ResponseData,
 }
 
@@ -135,18 +142,24 @@ impl SharedResponse {
         let magic: *mut u32 = get_field_ptr!(ptr, ResponseFrame, magic);
         let readers: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, readers);
         let num_readers: *mut u32 = get_field_ptr!(ptr, ResponseFrame, num_readers);
-        let start: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, start);
-        let end: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, end);
-        let end_ack: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, end_ack);
+        let barrier1: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, barrier1);
+        let barrier2: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, barrier2);
+        let read_complete: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, read_complete);
+        let write_complete: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, write_complete);
+        let count_mutex: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, count_mutex);
+        let count: *mut u32 = get_field_ptr!(ptr, ResponseFrame, count);
         let data: *mut ResponseData = get_field_ptr!(ptr, ResponseFrame, data);
 
         Ok(Self {
             magic,
             readers,
             num_readers,
-            start,
-            end,
-            end_ack,
+            barrier1,
+            barrier2,
+            read_complete,
+            write_complete,
+            count_mutex,
+            count,
             data,
         })
     }
@@ -193,6 +206,14 @@ pub unsafe fn sem_wait_timeout(sem: *mut sem_t, timeout: Duration) -> c_int {
         tv_nsec: target.subsec_nanos() as i64,
     };
     if sem_timedwait(sem, &raw const ts) != 0 {
+        *__errno_location()
+    } else {
+        0
+    }
+}
+
+pub unsafe fn sema_trywait(sem: *mut sem_t) -> c_int {
+    if sem_trywait(sem) != 0 {
         *__errno_location()
     } else {
         0

@@ -10,6 +10,7 @@ use std::{
 };
 
 use anyhow::{bail, Context};
+use clap::Parser;
 use libc::{sem_post, sem_wait, ETIMEDOUT};
 use rand::Rng;
 use rustix::{
@@ -17,12 +18,17 @@ use rustix::{
     shm::{self, OFlags},
 };
 
+pub mod cli;
+
+use cli::Args;
 use shared::{
-    sem_wait_timeout, sema_getvalue, CheckOk, RequestData, RequestPayload, ResponsePayload,
-    SharedRequest, SharedResponse, MAGIC_VALUE, SHM_REQUEST, SHM_RESPONSE,
+    sem_wait_timeout, sema_getvalue, sema_trywait, CheckOk, RequestData, RequestPayload,
+    ResponsePayload, SharedRequest, SharedResponse, MAGIC_VALUE, SHM_REQUEST, SHM_RESPONSE,
 };
 
 fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+
     let req_fd = shm::open(SHM_REQUEST, OFlags::RDWR, Mode::RUSR | Mode::WUSR)
         .context("Opening shared memory failed")?;
 
@@ -62,30 +68,55 @@ fn main() -> anyhow::Result<()> {
         let is = is;
         loop {
             unsafe {
+                // If we want to leave, try to lock num_readers,
+                // before the server can start the next round
                 if e.load(Ordering::Relaxed) {
-                    return leave_response(is);
+                    if sema_trywait(is.readers) == 0 {
+                        return exit_input(is);
+                    }
                 }
                 loop {
-                    match sem_wait_timeout(is.start, Duration::from_millis(20)) {
+                    match sem_wait_timeout(is.write_complete, Duration::from_millis(20)) {
                         0 => break,
                         ETIMEDOUT => {
                             if e.load(Ordering::Relaxed) {
-                                return leave_response(is);
+                                if sema_trywait(is.readers) == 0 {
+                                    return exit_input(is);
+                                }
                             }
                         }
-                        e => bail!("wait_start: {e}"),
+                        e => bail!("wait_write_complete: {e}"),
                     }
                 }
 
-                debug_assert_eq!(sema_getvalue(is.end_ack).unwrap(), 0);
+                sem_wait(is.count_mutex).r("wait_count_mutex")?;
+                *is.count += 1;
+                let n = *is.num_readers;
+                if *is.count == n {
+                    sem_wait(is.barrier2).r("wait_barrier2")?;
+                    sem_post(is.barrier1).r("post_barrier1")?;
+                }
+                sem_post(is.count_mutex).r("post_count_mutex")?;
+
+                sem_wait(is.barrier1).r("wait_barrier1")?;
+                sem_post(is.barrier1).r("post_barrier1")?;
 
                 let data = is.data.read_volatile();
                 if data.client_id == client_id {
                     snd_in.send(data).unwrap();
                 }
 
-                sem_post(is.end).r("post_end")?;
-                sem_wait(is.end_ack).r("wait_endack")?;
+                sem_wait(is.count_mutex).r("wait_count_mutex")?;
+                *is.count -= 1;
+                if *is.count == 0 {
+                    sem_wait(is.barrier1).r("wait_barrier1")?;
+                    sem_post(is.barrier2).r("post_barrier2")?;
+                    sem_post(is.read_complete).r("post_read_complete")?;
+                }
+                sem_post(is.count_mutex).r("post_count_mutex")?;
+
+                sem_wait(is.barrier2).r("wait_barrier2")?;
+                sem_post(is.barrier2).r("post_barrier2")?;
             }
         }
     });
@@ -98,28 +129,19 @@ fn main() -> anyhow::Result<()> {
                 Ok(request) => request,
                 Err(RecvTimeoutError::Timeout) => {
                     if e.load(Ordering::Relaxed) {
-                        return Ok(());
+                        return anyhow::Ok(());
                     }
                     continue;
                 }
                 Err(RecvTimeoutError::Disconnected) => break,
             };
-            //println!("SND: {request:?}");
+
             if e.load(Ordering::Relaxed) {
                 return Ok(());
             }
-            loop {
-                match unsafe { sem_wait_timeout(os.busy, Duration::from_millis(20)) } {
-                    0 => break,
-                    ETIMEDOUT => {
-                        if e.load(Ordering::Relaxed) {
-                            return Ok(());
-                        }
-                    }
-                    e => bail!("wait_busy: {e}"),
-                }
-            }
+
             unsafe {
+                sem_wait(os.busy).r("wait_busy")?;
                 debug_assert_eq!(sema_getvalue(os.busy).unwrap(), 0);
 
                 *os.data = request;
@@ -129,14 +151,23 @@ fn main() -> anyhow::Result<()> {
         Ok(())
     });
 
+    let mut outer_iter = 0;
+    let inner_iter = args.inner_iterations;
+
     let mut rmap = HashMap::new();
-    let mut buffer = [0u32; 100];
-    for _ in 0..1000 {
-        for i in 0..100 {
+    let mut buffer = vec![0u32; inner_iter];
+    loop {
+        if (args.outer_iterations > 0 && outer_iter == args.outer_iterations)
+            || exit_signal.load(Ordering::Relaxed)
+        {
+            break;
+        }
+
+        for i in 0..inner_iter {
             buffer[i] = rng.gen();
         }
         let start = SystemTime::now();
-        for i in 0..100 {
+        for i in 0..inner_iter {
             let val = buffer[i];
             let request = RequestData {
                 client_id,
@@ -149,7 +180,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        for i in 0..100 {
+        for i in 0..inner_iter {
             let response = match input.recv_timeout(Duration::from_secs(1)) {
                 Ok(response) => response,
                 Err(RecvTimeoutError::Timeout) => {
@@ -169,12 +200,44 @@ fn main() -> anyhow::Result<()> {
         let pass = SystemTime::now().duration_since(start).unwrap();
         println!("{}", pass.as_nanos());
 
-        for i in 0..100 {
+        for i in 0..inner_iter {
             let Some(v) = rmap.get(&(i as u32)) else {
                 panic!("Missing response for request {i}");
             };
             assert_eq!(*v, buffer[i]);
         }
+
+        for i in 0..inner_iter {
+            let val = buffer[i];
+            let request = RequestData {
+                client_id,
+                request_id: i as u32,
+                payload: RequestPayload::Delete(val),
+            };
+            if snd_out.send(request).is_err() {
+                eprintln!("Terminating main loop");
+                break;
+            }
+        }
+
+        for i in 0..inner_iter {
+            let response = match input.recv_timeout(Duration::from_secs(1)) {
+                Ok(response) => response,
+                Err(RecvTimeoutError::Timeout) => {
+                    panic!("Timed out waiting for response");
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    eprintln!("Terminating main loop");
+                    break;
+                }
+            };
+            let ResponsePayload::Deleted = response.payload else {
+                panic!("Invalid response for request {i}");
+            };
+        }
+
+        rmap.clear();
+        outer_iter += 1;
     }
 
     exit_signal.store(true, Ordering::Relaxed);
@@ -184,8 +247,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub unsafe fn leave_response(is: SharedResponse) -> anyhow::Result<()> {
-    sem_wait(is.readers).r("wait_readers")?;
+pub unsafe fn exit_input(is: SharedResponse) -> anyhow::Result<()> {
     *is.num_readers -= 1;
     sem_post(is.readers).r("post_readers")?;
     eprintln!("Left session");
