@@ -63,10 +63,10 @@ impl SharedRequest {
             )?
         };
 
-        let magic: *mut u32 = get_field_ptr!(ptr, RequestFrame, magic);
-        let waker: *mut sem_t = get_field_ptr!(ptr, RequestFrame, waker);
-        let busy: *mut sem_t = get_field_ptr!(ptr, RequestFrame, busy);
-        let data: *mut RequestData = get_field_ptr!(ptr, RequestFrame, data);
+        let magic: *mut u32 = get_field_ptr!(magic, RequestFrame, ptr);
+        let waker: *mut sem_t = get_field_ptr!(waker, RequestFrame, ptr);
+        let busy: *mut sem_t = get_field_ptr!(busy, RequestFrame, ptr);
+        let data: *mut RequestData = get_field_ptr!(data, RequestFrame, ptr);
 
         Ok(Self {
             magic,
@@ -139,16 +139,16 @@ impl SharedResponse {
             )?
         };
 
-        let magic: *mut u32 = get_field_ptr!(ptr, ResponseFrame, magic);
-        let readers: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, readers);
-        let num_readers: *mut u32 = get_field_ptr!(ptr, ResponseFrame, num_readers);
-        let barrier1: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, barrier1);
-        let barrier2: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, barrier2);
-        let read_complete: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, read_complete);
-        let write_complete: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, write_complete);
-        let count_mutex: *mut sem_t = get_field_ptr!(ptr, ResponseFrame, count_mutex);
-        let count: *mut u32 = get_field_ptr!(ptr, ResponseFrame, count);
-        let data: *mut ResponseData = get_field_ptr!(ptr, ResponseFrame, data);
+        let magic: *mut u32 = get_field_ptr!(magic, ResponseFrame, ptr);
+        let readers: *mut sem_t = get_field_ptr!(readers, ResponseFrame, ptr);
+        let num_readers: *mut u32 = get_field_ptr!(num_readers, ResponseFrame, ptr);
+        let barrier1: *mut sem_t = get_field_ptr!(barrier1, ResponseFrame, ptr);
+        let barrier2: *mut sem_t = get_field_ptr!(barrier2, ResponseFrame, ptr);
+        let read_complete: *mut sem_t = get_field_ptr!(read_complete, ResponseFrame, ptr);
+        let write_complete: *mut sem_t = get_field_ptr!(write_complete, ResponseFrame, ptr);
+        let count_mutex: *mut sem_t = get_field_ptr!(count_mutex, ResponseFrame, ptr);
+        let count: *mut u32 = get_field_ptr!(count, ResponseFrame, ptr);
+        let data: *mut ResponseData = get_field_ptr!(data, ResponseFrame, ptr);
 
         Ok(Self {
             magic,
@@ -199,7 +199,7 @@ pub unsafe fn sema_getvalue(sem: *mut sem_t) -> Result<c_int, c_int> {
     }
 }
 
-pub unsafe fn sem_wait_timeout(sem: *mut sem_t, timeout: Duration) -> c_int {
+pub unsafe fn sema_wait_timeout(sem: *mut sem_t, timeout: Duration) -> c_int {
     let target = SystemTime::now().duration_since(UNIX_EPOCH).unwrap() + timeout;
     let ts = timespec {
         tv_sec: target.as_secs() as i64,
@@ -222,7 +222,7 @@ pub unsafe fn sema_trywait(sem: *mut sem_t) -> c_int {
 
 mod macros {
     macro_rules! get_field_ptr {
-        ($ptr:expr, $frame:ty, $field:ident) => {
+        ($field:ident, $frame:ty, $ptr:expr) => {
             unsafe { $ptr.byte_add(offset_of!($frame, $field)) }.cast()
         };
     }

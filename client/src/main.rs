@@ -22,8 +22,8 @@ pub mod cli;
 
 use cli::Args;
 use shared::{
-    sem_wait_timeout, sema_getvalue, sema_trywait, CheckOk, RequestData, RequestPayload,
-    ResponsePayload, SharedRequest, SharedResponse, MAGIC_VALUE, SHM_REQUEST, SHM_RESPONSE,
+    sema_trywait, sema_wait_timeout, CheckOk, RequestData, RequestPayload, ResponsePayload,
+    SharedRequest, SharedResponse, MAGIC_VALUE, SHM_REQUEST, SHM_RESPONSE,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -76,7 +76,7 @@ fn main() -> anyhow::Result<()> {
                     }
                 }
                 loop {
-                    match sem_wait_timeout(is.write_complete, Duration::from_millis(20)) {
+                    match sema_wait_timeout(is.write_complete, Duration::from_millis(20)) {
                         0 => break,
                         ETIMEDOUT => {
                             if e.load(Ordering::Relaxed) {
@@ -142,7 +142,6 @@ fn main() -> anyhow::Result<()> {
 
             unsafe {
                 sem_wait(os.busy).r("wait_busy")?;
-                debug_assert_eq!(sema_getvalue(os.busy).unwrap(), 0);
 
                 *os.data = request;
                 sem_post(os.waker).r("post_waker")?;
@@ -166,6 +165,7 @@ fn main() -> anyhow::Result<()> {
         for i in 0..inner_iter {
             buffer[i] = rng.gen();
         }
+
         let start = SystemTime::now();
         for i in 0..inner_iter {
             let val = buffer[i];

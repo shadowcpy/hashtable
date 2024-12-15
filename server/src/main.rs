@@ -1,4 +1,4 @@
-use std::{hint, process::exit, thread};
+use std::{process::exit, thread};
 
 use anyhow::bail;
 use clap::Parser;
@@ -14,8 +14,8 @@ pub mod hash_table;
 use cli::Args;
 use hash_table::HashTable;
 use shared::{
-    sema_getvalue, CheckOk, RequestFrame, RequestPayload, ResponseData, ResponseFrame,
-    ResponsePayload, SharedRequest, SharedResponse, MAGIC_VALUE, SHM_REQUEST, SHM_RESPONSE,
+    CheckOk, RequestFrame, RequestPayload, ResponseData, ResponseFrame, ResponsePayload,
+    SharedRequest, SharedResponse, MAGIC_VALUE, SHM_REQUEST, SHM_RESPONSE,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -84,10 +84,8 @@ fn main() -> anyhow::Result<()> {
             loop {
                 unsafe {
                     sem_wait(is.waker).r("wait_waker")?;
+
                     let data = *is.data;
-
-                    debug_assert_eq!(sema_getvalue(is.waker).unwrap(), 0);
-
                     snd_in.send(data).unwrap();
 
                     if sem_post(is.busy) != 0 {
