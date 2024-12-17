@@ -133,6 +133,7 @@ impl HashtableClient {
             if exit_attempt {
                 return Ok(());
             } else {
+                // Deadlock prevention: Cycle must be completed if exit is not possible in this round
                 let _ = self.try_recv(1);
             }
         }
