@@ -11,3 +11,5 @@ ctrlc = "3.4.5"
 libc = "0.2.168"
 rustix = { version = "0.38.42", features = ["mm", "shm"] }
 shared = { path = "../shared" }
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"

@@ -17,9 +17,17 @@ use shared::{
     CheckOk, RequestFrame, RequestPayload, ResponseData, ResponseFrame, ResponsePayload,
     SharedRequest, SharedResponse, MAGIC_VALUE, SHM_REQUEST, SHM_RESPONSE,
 };
+use tracing::{trace, trace_span, Level};
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+
+    tracing_subscriber::fmt()
+        .with_max_level(Level::TRACE)
+        .init();
+
+    let _ = shm::unlink(SHM_REQUEST);
+    let _ = shm::unlink(SHM_RESPONSE);
 
     let hm: HashTable<u32, u32> = HashTable::new(args.size);
 
@@ -98,28 +106,36 @@ fn main() -> anyhow::Result<()> {
         let output_thread = s.spawn(move || {
             let os = os;
             loop {
-                let next_message = output.recv().unwrap();
-
+                let next_message: ResponseData = output.recv().unwrap();
+                let id = next_message.request_id + next_message.client_id;
+                let span = trace_span!("send", id);
+                let _a = span.enter();
                 unsafe {
                     // Lock join / leave
                     sem_wait(os.readers).r("wait_readers")?;
+                    trace!("L Readers");
                     // Get current number of readers
                     let nr = os.num_readers.read_volatile();
+                    trace!("R Readers: {nr}");
                     // Send data
                     os.data.write_volatile(next_message);
+                    trace!("W Data");
 
                     // Wake up all readers
                     for _ in 0..nr {
                         sem_post(os.write_complete).r("post_wc")?;
+                        trace!("P WriteComplete");
                     }
                     // If there is at least one reader, wait for the barrier finalization signal / thread
                     if nr > 0 {
                         sem_wait(os.read_complete).r("wait_rc")?;
+                        trace!("W ReadComplete");
                     }
                     // Unlock join / leave
                     if sem_post(os.readers) != 0 {
                         bail!("post_readers");
                     }
+                    trace!("P Readers");
                 }
             }
         });
@@ -162,7 +178,7 @@ fn main() -> anyhow::Result<()> {
                         payload,
                     };
 
-                    println!("Worker {worker}: finished Processing {request:?}");
+                    //println!("Worker {worker}: finished Processing {request:?}");
 
                     snd_out.send(response).unwrap();
                 }

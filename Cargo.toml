@@ -1,3 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["server", "client", "shared"]
+
+[profile.benchmark]
+inherits = "release"
+debug = true
