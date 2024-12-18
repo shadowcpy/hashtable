@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["server", "client", "shared"]
+members = ["server", "client", "shared", "analysis/evaluator"]
 
 [profile.benchmark]
 inherits = "release"

@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::bail;
+use arrayvec::ArrayString;
 use libc::{__errno_location, c_int, sem_getvalue, sem_t, sem_timedwait, sem_trywait, timespec};
 use rustix::mm::{mmap, MapFlags, ProtFlags};
 
@@ -14,6 +15,8 @@ use macros::get_field_ptr;
 pub const MAGIC_VALUE: u32 = 0x77256810;
 pub const SHM_REQUEST: &str = "/hashtable_req";
 pub const SHM_RESPONSE: &str = "/hashtable_res";
+
+pub type KeyType = ArrayString<64>;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -35,9 +38,9 @@ pub struct RequestData {
 #[repr(C, u8)]
 #[derive(Debug, Copy, Clone)]
 pub enum RequestPayload {
-    Insert(u32, u32),
-    ReadBucket(u32),
-    Delete(u32),
+    Insert(KeyType, u32),
+    ReadBucket(KeyType),
+    Delete(KeyType),
 }
 
 pub struct SharedRequest {
@@ -103,8 +106,11 @@ pub struct ResponseData {
 #[repr(C, u8)]
 #[derive(Debug, Copy, Clone)]
 pub enum ResponsePayload {
-    Inserted(u32),
-    BucketContent { len: usize, data: [(u32, u32); 32] },
+    Inserted,
+    BucketContent {
+        len: usize,
+        data: [(KeyType, u32); 32],
+    },
     Deleted,
     NotFound,
     Overflow,

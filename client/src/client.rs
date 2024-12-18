@@ -12,7 +12,6 @@ use shared::{
     sema_trywait, sema_wait_timeout, CheckOk, RequestData, RequestPayload, ResponseData,
     SharedRequest, SharedResponse, MAGIC_VALUE, SHM_REQUEST, SHM_RESPONSE,
 };
-use tracing::{instrument, trace};
 
 pub struct HashtableClient {
     client_id: u32,
@@ -61,8 +60,7 @@ impl HashtableClient {
         anyhow::Ok(())
     }
 
-    #[instrument(skip(self))]
-    pub unsafe fn try_recv(&mut self, id: u32) -> anyhow::Result<Option<ResponseData>> {
+    pub unsafe fn try_recv(&mut self) -> anyhow::Result<Option<ResponseData>> {
         let is = &self.is;
         loop {
             match sema_wait_timeout(is.write_complete, Duration::from_millis(20)) {
@@ -74,26 +72,19 @@ impl HashtableClient {
             }
         }
 
-        trace!("L WriteComplete");
         sem_wait(is.count_mutex).r("wait_count_mutex")?;
-        trace!("L Count");
         *is.count += 1;
         let n = *is.num_readers;
         if *is.count == n {
             sem_wait(is.barrier2).r("wait_barrier2")?;
-            trace!("L Barrier2 *");
             sem_post(is.barrier1).r("post_barrier1")?;
-            trace!("P Barrier1 *");
         }
 
         sem_post(is.count_mutex).r("post_count_mutex")?;
-        trace!("P Count");
 
         sem_wait(is.barrier1).r("wait_barrier1")?;
-        trace!("L Barrier1");
 
         sem_post(is.barrier1).r("post_barrier1")?;
-        trace!("P Barrier1");
 
         let data = is.data.read_volatile();
         let data = if data.client_id == self.client_id {
@@ -102,26 +93,17 @@ impl HashtableClient {
             None
         };
 
-        trace!("R Data");
-
         sem_wait(is.count_mutex).r("wait_count_mutex")?;
-        trace!("L Count");
         *is.count -= 1;
         if *is.count == 0 {
             sem_wait(is.barrier1).r("wait_barrier1")?;
-            trace!("L Barrier1 *");
             sem_post(is.barrier2).r("post_barrier2")?;
-            trace!("P Barrier2 *");
             sem_post(is.read_complete).r("post_read_complete")?;
-            trace!("P ReadComplete *");
         }
         sem_post(is.count_mutex).r("post_count_mutex")?;
-        trace!("P Count");
 
         sem_wait(is.barrier2).r("wait_barrier2")?;
-        trace!("L Barrier2");
         sem_post(is.barrier2).r("post_barrier2")?;
-        trace!("P Barrier2");
         return Ok(data);
     }
 
@@ -134,7 +116,7 @@ impl HashtableClient {
                 return Ok(());
             } else {
                 // Deadlock prevention: Cycle must be completed if exit is not possible in this round
-                let _ = self.try_recv(1);
+                let _ = self.try_recv();
             }
         }
     }
