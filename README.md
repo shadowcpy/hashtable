@@ -74,6 +74,8 @@ Since every client gets every message, clients discard messages that are not con
 ## Architecture
 `1` server and `n` clients communicate over two shared memory buffers, requests from client to server via `/hashtable_req`, responses via `/hashtable_res`.
 
+**The composition of the shared memory regions can be seen in `shared/src/lib.rs`**
+
 ![Architecture](analysis/architecture_v1.svg)
 
 Each client can request the server to execute the following commands:
