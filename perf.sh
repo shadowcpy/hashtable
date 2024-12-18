@@ -13,6 +13,14 @@ function ctrl_c() {
     exit 1
 }
 
+exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+if ! exists perf; then
+  echo "Linux Perf is not installed! Aborting"
+  exit 1
+fi
 
 record_perf() {
   HM_SIZE=$1
@@ -26,9 +34,9 @@ record_perf() {
     target/benchmark/server -s $HM_SIZE -n $NUM_THREADS &
   SERVER_PID=$!
 
-  sleep 5
+  sleep 1
 
-  echo "Starting ${NUM_CLIENTS} test clients"
+  echo "Starting ${NUM_CLIENTS} background clients"
 
   CLIENT_PIDS=()
 
@@ -40,19 +48,23 @@ record_perf() {
     done
   fi
 
-  echo "Recording data ..."
-  sleep 15
+  sleep 1
 
-  if (( $NUM_CLIENTS > 0 )); then
-    for pid in $CLIENT_PIDS
-    do
-      kill -2 $pid
-      wait $pid
-    done
-  fi
+  echo "Recording data ..."
+
+  perf record -s --call-graph dwarf -o "perf_client_${NUM_CLIENTS}c_${NUM_THREADS}thr_${HM_SIZE}hms" \
+    target/benchmark/client 1000 $INNER_LOOP
+
+    if (( $NUM_CLIENTS > 0 )); then
+        for pid in "${CLIENT_PIDS[@]}"
+        do
+            kill -2 $pid
+            wait $pid
+        done
+    fi
 
   kill -2 $SERVER_PID
-  wait $SERVER_PID
+  wait $SERVER_PID || true
 }
 
 record_perf 10000 2 4 10

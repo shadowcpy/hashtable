@@ -50,7 +50,7 @@ do_bm() {
 
   hyperfine -N --warmup $WARMUP_RUNS "target/benchmark/client $OUTER_LOOP $INNER_LOOP" --export-csv "analysis/benchmarks/$NAME.csv"
   if (( $NUM_CLIENTS > 0 )); then
-    for pid in $CLIENT_PIDS
+    for pid in "${CLIENT_PIDS[@]}"
     do
       kill -2 $pid
       wait $pid
