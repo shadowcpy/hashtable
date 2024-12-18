@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 
-set -e
-
 trap ctrl_c INT
 
 function ctrl_c() {
-    set +e
     trap - INT
     echo "Aborting"
     killall client
@@ -64,11 +61,11 @@ do_bm() {
 do_bm "AloneSingleThread" 10000 1 0 10 100
 do_bm "TwoSingleThread" 10000 1 1 10 100
 
-do_bm "AloneMultiThread" 10000 4 0 10 100
-do_bm "TwoMultiThread" 10000 4 1 10 100
+do_bm "AloneMultiThread" 10000 16 0 10 100
+do_bm "TwoMultiThread" 10000 16 1 10 100
 
 do_bm "ManyClientsST" 10000 1 16 10 100 2
-do_bm "ManyClientsMT" 10000 4 16 10 100 2
+do_bm "ManyClientsMT" 10000 16 16 10 100 2
 
 do_bm "SCManyThreads" 10000 32 0 10 100
 

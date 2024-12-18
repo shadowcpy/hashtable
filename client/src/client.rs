@@ -86,7 +86,7 @@ impl HashtableClient {
 
         sem_post(is.barrier1).r("post_barrier1")?;
 
-        let data = is.data.read_volatile();
+        let data = *is.data;
         let data = if data.client_id == self.client_id {
             Some(data)
         } else {

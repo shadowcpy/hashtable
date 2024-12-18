@@ -30,7 +30,7 @@ record_perf() {
 
   echo "Starting server (-s $HM_SIZE, -n $NUM_THREADS)"
 
-  perf record -s --call-graph dwarf -o "perf_server_${NUM_CLIENTS}c_${NUM_THREADS}thr_${HM_SIZE}hms" \
+  perf record -s --call-graph dwarf -o "analysis/perf_server_${NUM_CLIENTS}c_${NUM_THREADS}thr_${HM_SIZE}hms" \
     target/benchmark/server -s $HM_SIZE -n $NUM_THREADS &
   SERVER_PID=$!
 
@@ -52,7 +52,7 @@ record_perf() {
 
   echo "Recording data ..."
 
-  perf record -s --call-graph dwarf -o "perf_client_${NUM_CLIENTS}c_${NUM_THREADS}thr_${HM_SIZE}hms" \
+  perf record -s --call-graph dwarf -o "analysis/perf_client_${NUM_CLIENTS}c_${NUM_THREADS}thr_${HM_SIZE}hms" \
     target/benchmark/client 1000 $INNER_LOOP
 
     if (( $NUM_CLIENTS > 0 )); then

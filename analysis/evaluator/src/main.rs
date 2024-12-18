@@ -27,7 +27,7 @@ fn main() {
 
     let alone_mt_st = 1.0 / (alone_mt.mean / alone_st.mean);
     println!(
-        "alone at 4 threads {} alone at 1 thread: {:.02}x ",
+        "alone at 16 threads {} alone at 1 thread: {:.02}x ",
         text(alone_mt_st),
         alone_mt_st,
     );
@@ -59,14 +59,14 @@ fn main() {
 
     let alone_two_mt = 1.0 / (alone_mt.mean / two_mt.mean);
     println!(
-        "alone at 4 threads {} one visitor at 4 threads: {:.02}x",
+        "alone at 16 threads {} one visitor at 16 threads: {:.02}x",
         text(alone_two_mt),
         alone_two_mt,
     );
 
     let alone_many_mt = 1.0 / (alone_mt.mean / many_mt.mean);
     println!(
-        "alone at 4 threads {} 16 visitors at 4 threads: {:.02}x",
+        "alone at 16 threads {} 16 visitors at 16 threads: {:.02}x",
         text(alone_many_mt),
         alone_many_mt,
     );
