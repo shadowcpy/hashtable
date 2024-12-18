@@ -9,18 +9,59 @@
   - [Hotspot](https://github.com/KDAB/hotspot) for inspecting the perf data
 
 ### Building and Running
-To build the binaries: Run `make build`
+- Binaries:
+  - To build the binaries: Run `make build`
+  - This will generate the respective binary under `target/release/[server/client]`
 
-This will generate the respective binary under `target/release/[server/client]`
+- Benchmarks:
+  - To start the benchmarks: Run `make bench`
 
-To start the benchmarks: Run `make bench`
+- Perf:
+  - To collect `perf` data from a load test: Run `make perf`
+  - The resulting data will be saved to `analysis/perf_*`, and can be inspected with Hotspot
 
+## Server and Client
+### Server
+The server accepts the following arguments:
+- `-s <usize>`: Number of Buckets in the HashTable
+- `-n <usize>`: Number of worker threads to spawn
 
-To collect `perf` data from a load test: Run `make perf`
+On startup, it creates two shared memory regions, initializes all semaphores and values,
+and then writes the value `MAGIC = 0x77256810` to the first field in each memory region to signal readyness.
 
-The resulting data will be saved to `analysis/perf_*`
+It then listens on the `/hashtable_req` by blocking on a semaphore until a client sends a message.
 
+Incoming messages are forwarded to the workers internally via a mpmc channel (`crossbeam_channel`)
 
+The messages are claimed by worker threads, which execute the contained operation on the HashTable.
+Afterwards, the result of the operation is forwarded via a second mpmc channel to the sender thread.
+
+The sender thread then sends the responses back to **all** clients over `/hashtable_res`
+
+### Client
+The client accepts the following arguments:
+- `ol: usize (positional)`: Number of outer loop iterations (runs), provide 0 for infinite
+- `il: usize (positional)`: Number of values to be processed each run
+
+It then maps the respective shared memory regions, checks for the `MAGIC` value and then executes:
+- Generate `client_id` (random `u32`)
+- Generate `seed` (random `u32`)
+- For `j in 0..ol`
+  - Generate `il` random string keys = `"ht{$seed}{$rand_u32()}"`
+  - Insert:
+    - For `i in 0..il`: Send request to insert (`key[i]`, `i`)
+    - Collect and verify responses
+  - Read:
+    - For `i in 0..il`: Send request to read bucket of `key[i]`
+    - Collect responses and verify that bucket `key[i]` contains `i`
+  - Delete
+    - For `i in 0..il`: Send request to delete key `key[i]`
+    - Collect and verify responses
+
+To associate the requests with the responses, each request carries a `request_id: u32`,
+which is included with the response again.
+
+Since every client gets every message, clients discard messages that are not containing their `client_id`
 
 ## Architecture
 `1` server and `n` clients communicate over two shared memory buffers, requests from client to server via `/hashtable_req`, responses via `/hashtable_res`.
