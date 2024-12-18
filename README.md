@@ -1,4 +1,4 @@
-# Hashtable, a hashmap server / client implemented with POSIX shm
+# Hashtable, a hashmap server / client implemented with POSIX shared memory
 ## How to run
 ### Prerequisites:
 - A working [Rust](https://www.rust-lang.org/tools/install) toolchain (stable channel)
