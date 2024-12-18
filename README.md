@@ -20,7 +20,15 @@
   - To collect `perf` data from a load test: Run `make perf`
   - The resulting data will be saved to `analysis/perf_*`, and can be inspected with Hotspot
 
-## Server and Client
+## Components
+### HashTable
+The HashTable is implemented in `server/src/hash_table.rs` with an array of Linked Lists,
+locked individually by Reader-Writer locks.
+
+It can be used with any Keys that are Hashable, in the current server it is used with:
+- Key: `ArrayString<64>`, a heapless string which can store 64 bytes
+- Value: `u32`
+
 ### Server
 The server accepts the following arguments:
 - `-s <usize>`: Number of Buckets in the HashTable
@@ -65,6 +73,8 @@ Since every client gets every message, clients discard messages that are not con
 
 ## Architecture
 `1` server and `n` clients communicate over two shared memory buffers, requests from client to server via `/hashtable_req`, responses via `/hashtable_res`.
+
+![Architecture](architecture_v1.svg)
 
 Each client can request the server to execute the following commands:
 - Insert an item (Key: Stack-Only String (size max 64 bytes), Value: u32)
