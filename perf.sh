@@ -59,7 +59,7 @@ record_perf() {
         for pid in "${CLIENT_PIDS[@]}"
         do
             kill -2 $pid
-            wait $pid
+            wait $pid || true
         done
     fi
 
