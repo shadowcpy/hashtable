@@ -50,10 +50,11 @@ The sender thread then sends the responses back to **all** clients over `/hashta
 The client accepts the following arguments:
 - `ol: usize (positional)`: Number of outer loop iterations (runs), provide 0 for infinite
 - `il: usize (positional)`: Number of values to be processed each run
+- `--seed: u32 (optional)`: Random start seed for keys
 
 It then maps the respective shared memory regions, checks for the `MAGIC` value and then executes:
 - Generate `client_id` (random `u32`)
-- Generate `seed` (random `u32`)
+- Generate `seed` (random `u32`) if not specified by the user
 - For `j in 0..ol`
   - Generate `il` random string keys = `"ht{$seed}{$rand_u32()}"`
   - Insert:

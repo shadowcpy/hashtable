@@ -12,7 +12,8 @@ pub struct Args {
     /// Inner loop iterations (number of requests per pass)
     #[arg(default_value_t = 100)]
     pub inner_iterations: usize,
-    /// Seed for random generation range
-    /// range = [seed,seed+inner_iterations)
+
+    /// Start Seed for the random keys
+    #[arg(long)]
     pub seed: Option<u32>,
 }
