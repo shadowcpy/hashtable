@@ -74,7 +74,7 @@ Since every client gets every message, clients discard messages that are not con
 ## Architecture
 `1` server and `n` clients communicate over two shared memory buffers, requests from client to server via `/hashtable_req`, responses via `/hashtable_res`.
 
-![Architecture](architecture_v1.svg)
+![Architecture](analysis/architecture_v1.svg)
 
 Each client can request the server to execute the following commands:
 - Insert an item (Key: Stack-Only String (size max 64 bytes), Value: u32)
