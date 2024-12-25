@@ -1,5 +1,5 @@
 use std::{
-    mem::offset_of,
+    mem::{offset_of, MaybeUninit},
     os::fd::OwnedFd,
     ptr::null_mut,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -16,15 +16,20 @@ pub const MAGIC_VALUE: u32 = 0x77256810;
 pub const SHM_REQUEST: &str = "/hashtable_req";
 pub const SHM_RESPONSE: &str = "/hashtable_res";
 
+pub const REQ_BUFFER_SIZE: usize = 1024;
+
 pub type KeyType = ArrayString<64>;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct RequestFrame {
     magic: u32,
-    waker: sem_t,
-    busy: sem_t,
-    data: RequestData,
+    write: usize,
+    read: usize,
+    count: sem_t,
+    space: sem_t,
+    lock: sem_t,
+    buffer: [MaybeUninit<RequestData>; REQ_BUFFER_SIZE],
 }
 
 #[repr(C)]
@@ -45,9 +50,12 @@ pub enum RequestPayload {
 
 pub struct SharedRequest {
     pub magic: *mut u32,
-    pub waker: *mut sem_t,
-    pub busy: *mut sem_t,
-    pub data: *mut RequestData,
+    pub write: *mut usize,
+    pub read: *mut usize,
+    pub count: *mut sem_t,
+    pub space: *mut sem_t,
+    pub lock: *mut sem_t,
+    pub buffer: *mut [MaybeUninit<RequestData>; REQ_BUFFER_SIZE],
 }
 
 unsafe impl Send for SharedRequest {}
@@ -67,15 +75,22 @@ impl SharedRequest {
         };
 
         let magic: *mut u32 = get_field_ptr!(magic, RequestFrame, ptr);
-        let waker: *mut sem_t = get_field_ptr!(waker, RequestFrame, ptr);
-        let busy: *mut sem_t = get_field_ptr!(busy, RequestFrame, ptr);
-        let data: *mut RequestData = get_field_ptr!(data, RequestFrame, ptr);
+        let write: *mut usize = get_field_ptr!(write, RequestFrame, ptr);
+        let read: *mut usize = get_field_ptr!(read, RequestFrame, ptr);
+        let count: *mut sem_t = get_field_ptr!(count, RequestFrame, ptr);
+        let space: *mut sem_t = get_field_ptr!(space, RequestFrame, ptr);
+        let lock: *mut sem_t = get_field_ptr!(lock, RequestFrame, ptr);
+        let buffer: *mut [MaybeUninit<RequestData>; REQ_BUFFER_SIZE] =
+            get_field_ptr!(buffer, RequestFrame, ptr);
 
         Ok(Self {
             magic,
-            waker,
-            busy,
-            data,
+            write,
+            read,
+            count,
+            space,
+            lock,
+            buffer,
         })
     }
 }

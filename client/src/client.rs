@@ -10,7 +10,7 @@ use rustix::{
 
 use shared::{
     sema_trywait, sema_wait_timeout, CheckOk, RequestData, RequestPayload, ResponseData,
-    SharedRequest, SharedResponse, MAGIC_VALUE, SHM_REQUEST, SHM_RESPONSE,
+    SharedRequest, SharedResponse, MAGIC_VALUE, REQ_BUFFER_SIZE, SHM_REQUEST, SHM_RESPONSE,
 };
 
 pub struct HashtableClient {
@@ -48,15 +48,21 @@ impl HashtableClient {
     }
 
     pub unsafe fn send(&mut self, request: RequestPayload, id: u32) -> anyhow::Result<()> {
-        sem_wait(self.os.busy).r("wait_busy")?;
+        sem_wait(self.os.space).r("wait_space")?;
+        sem_wait(self.os.lock).r("wait_lock")?;
 
-        *self.os.data = RequestData {
+        let item = &mut (*self.os.buffer)[(*self.os.write) & (REQ_BUFFER_SIZE - 1)];
+
+        item.write(RequestData {
             client_id: self.client_id,
             request_id: id,
             payload: request,
-        };
+        });
 
-        sem_post(self.os.waker).r("post_waker")?;
+        (*self.os.write) += 1;
+
+        sem_post(self.os.lock).r("post_lock")?;
+        sem_post(self.os.count).r("post_count")?;
         anyhow::Ok(())
     }
 

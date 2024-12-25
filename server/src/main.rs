@@ -1,4 +1,4 @@
-use std::{process::exit, thread};
+use std::{mem::MaybeUninit, process::exit, thread};
 
 use anyhow::bail;
 use clap::Parser;
@@ -15,7 +15,7 @@ use cli::Args;
 use hash_table::HashTable;
 use shared::{
     CheckOk, KeyType, RequestFrame, RequestPayload, ResponseData, ResponseFrame, ResponsePayload,
-    SharedRequest, SharedResponse, MAGIC_VALUE, SHM_REQUEST, SHM_RESPONSE,
+    SharedRequest, SharedResponse, MAGIC_VALUE, REQ_BUFFER_SIZE, SHM_REQUEST, SHM_RESPONSE,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -46,8 +46,9 @@ fn main() -> anyhow::Result<()> {
 
     // Requests (input)
     unsafe {
-        sem_init(is.waker, 1, 0).r("init_waker")?;
-        sem_init(is.busy, 1, 1).r("init_busy")?;
+        sem_init(is.count, 1, 0).r("init_count")?;
+        sem_init(is.space, 1, REQ_BUFFER_SIZE as u32).r("init_space")?;
+        sem_init(is.lock, 1, 1).r("init_lock")?;
     }
 
     // Responses (output)
@@ -61,6 +62,10 @@ fn main() -> anyhow::Result<()> {
     }
 
     unsafe {
+        (*is.buffer) = [MaybeUninit::uninit(); 1024];
+        (*is.read) = 0;
+        (*is.write) = 0;
+
         (*os.num_readers) = 0;
         (*os.count) = 0;
 
@@ -86,13 +91,18 @@ fn main() -> anyhow::Result<()> {
             let is = is;
             loop {
                 unsafe {
-                    sem_wait(is.waker).r("wait_waker")?;
+                    sem_wait(is.count).r("wait_space")?;
+                    sem_wait(is.lock).r("wait_lock")?;
 
-                    let data = *is.data;
+                    let item = &mut (*is.buffer)[(*is.read) & (REQ_BUFFER_SIZE - 1)];
+
+                    let data = item.assume_init();
                     snd_in.send(data).unwrap();
+                    (*is.read) += 1;
 
-                    if sem_post(is.busy) != 0 {
-                        bail!("post_busy");
+                    sem_post(is.lock).r("post_lock")?;
+                    if sem_post(is.space) != 0 {
+                        bail!("post_count");
                     }
                 }
             }
