@@ -81,33 +81,26 @@ fn main() -> anyhow::Result<()> {
         exit(0);
     })?;
 
-    let (snd_in, input) = crossbeam_channel::unbounded();
+    let pop_item = |is: SharedRequest| unsafe {
+        sem_wait(is.count).r("wait_count")?;
+        sem_wait(is.lock).r("wait_lock")?;
+
+        let item = &mut (*is.buffer)[(*is.read) & (REQ_BUFFER_SIZE - 1)];
+
+        let data = item.assume_init();
+        (*is.read) = (*is.read).wrapping_add(1);
+
+        sem_post(is.lock).r("post_lock")?;
+        sem_post(is.space).r("post_space")?;
+
+        anyhow::Ok(data)
+    };
+
     let (snd_out, output) = crossbeam_channel::unbounded();
 
     println!("Server is ready to accept connections");
 
     thread::scope(|s| {
-        let input_thread = s.spawn(move || {
-            let is = is;
-            loop {
-                unsafe {
-                    sem_wait(is.count).r("wait_space")?;
-                    sem_wait(is.lock).r("wait_lock")?;
-
-                    let item = &mut (*is.buffer)[(*is.read) & (REQ_BUFFER_SIZE - 1)];
-
-                    let data = item.assume_init();
-                    snd_in.send(data).unwrap();
-                    (*is.read) += 1;
-
-                    sem_post(is.lock).r("post_lock")?;
-                    if sem_post(is.space) != 0 {
-                        bail!("post_count");
-                    }
-                }
-            }
-        });
-
         let output_thread = s.spawn(move || {
             let os = os;
             loop {
@@ -139,46 +132,48 @@ fn main() -> anyhow::Result<()> {
         for i in 0..args.num_threads {
             let _worker = format!("{i}");
             s.spawn(|| {
-                while let Ok(request) = input.recv() {
-                    let payload = match request.payload {
-                        RequestPayload::Insert(k, v) => {
-                            hm.insert(k, v);
-                            ResponsePayload::Inserted
-                        }
-                        RequestPayload::ReadBucket(k) => {
-                            let res = hm.read_bucket(k);
-                            let list: Vec<(KeyType, u32)> =
-                                res.iter().map(|n| (n.k, n.v)).collect();
-                            let len = list.len();
-                            if len > 32 {
-                                ResponsePayload::Overflow
-                            } else {
-                                let mut data = [(KeyType::new(), 0); 32];
-                                data[..len].copy_from_slice(&list);
-                                ResponsePayload::BucketContent { len, data }
+                let is = is;
+                loop {
+                    if let Ok(request) = pop_item(is) {
+                        let payload = match request.payload {
+                            RequestPayload::Insert(k, v) => {
+                                hm.insert(k, v);
+                                ResponsePayload::Inserted
                             }
-                        }
-                        RequestPayload::Delete(k) => {
-                            if let Some(_v) = hm.remove(k) {
-                                ResponsePayload::Deleted
-                            } else {
-                                ResponsePayload::NotFound
+                            RequestPayload::ReadBucket(k) => {
+                                let res = hm.read_bucket(k);
+                                let list: Vec<(KeyType, u32)> =
+                                    res.iter().map(|n| (n.k, n.v)).collect();
+                                let len = list.len();
+                                if len > 32 {
+                                    ResponsePayload::Overflow
+                                } else {
+                                    let mut data = [(KeyType::new(), 0); 32];
+                                    data[..len].copy_from_slice(&list);
+                                    ResponsePayload::BucketContent { len, data }
+                                }
                             }
-                        }
-                    };
+                            RequestPayload::Delete(k) => {
+                                if let Some(_v) = hm.remove(k) {
+                                    ResponsePayload::Deleted
+                                } else {
+                                    ResponsePayload::NotFound
+                                }
+                            }
+                        };
 
-                    let response = ResponseData {
-                        client_id: request.client_id,
-                        request_id: request.request_id,
-                        payload,
-                    };
+                        let response = ResponseData {
+                            client_id: request.client_id,
+                            request_id: request.request_id,
+                            payload,
+                        };
 
-                    snd_out.send(response).unwrap();
+                        snd_out.send(response).unwrap();
+                    }
                 }
             });
         }
 
-        input_thread.join().unwrap()?;
         output_thread.join().unwrap()?;
 
         Ok(())

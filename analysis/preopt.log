@@ -1,0 +1,50 @@
+cargo build --profile benchmark --bins
+    Finished `benchmark` profile [optimized + debuginfo] target(s) in 0.03s
+./benchmark.sh
+-- Benchmark AloneSingleThread (server -s 10000 -n 1) (0 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):      42.7 ms ±   4.1 ms    [User: 4.1 ms, System: 8.4 ms]
+  Range (min … max):    35.5 ms …  54.9 ms    65 runs
+ 
+-- Benchmark TwoSingleThread (server -s 10000 -n 1) (1 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):      58.5 ms ±  16.7 ms    [User: 8.9 ms, System: 22.6 ms]
+  Range (min … max):    39.5 ms … 124.0 ms    57 runs
+ 
+-- Benchmark AloneMultiThread (server -s 10000 -n 16) (0 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):      46.1 ms ±   6.9 ms    [User: 5.5 ms, System: 9.9 ms]
+  Range (min … max):    19.7 ms …  63.1 ms    66 runs
+ 
+-- Benchmark TwoMultiThread (server -s 10000 -n 16) (1 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):      56.3 ms ±  10.6 ms    [User: 9.0 ms, System: 22.2 ms]
+  Range (min … max):    47.6 ms … 120.9 ms    55 runs
+ 
+  Warning: Statistical outliers were detected. Consider re-running this benchmark on a quiet system without any interferences from other programs. It might help to use the '--warmup' or '--prepare' options.
+ 
+-- Benchmark ManyClientsST (server -s 10000 -n 1) (16 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):      2.364 s ±  0.026 s    [User: 0.082 s, System: 0.230 s]
+  Range (min … max):    2.311 s …  2.395 s    10 runs
+ 
+-- Benchmark ManyClientsMT (server -s 10000 -n 16) (16 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):      2.638 s ±  0.056 s    [User: 0.095 s, System: 0.246 s]
+  Range (min … max):    2.589 s …  2.776 s    10 runs
+ 
+-- Benchmark SCManyThreads (server -s 10000 -n 32) (0 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):      43.3 ms ±   4.2 ms    [User: 5.1 ms, System: 9.0 ms]
+  Range (min … max):    25.0 ms …  55.2 ms    68 runs
+ 
+--- Summary ---
+
+alone at 16 threads is slower than alone at 1 thread: 0.93x 
+alone at 32 threads is slower than alone at 1 thread: 0.99x 
+
+alone at 1 thread is faster than one visitor at 1 thread: 1.37x
+alone at 1 thread is faster than 16 visitors at 1 thread: 55.35x
+
+alone at 16 threads is faster than one visitor at 16 threads: 1.22x
+alone at 16 threads is faster than 16 visitors at 16 threads: 57.20x

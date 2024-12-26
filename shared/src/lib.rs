@@ -10,6 +10,8 @@ use arrayvec::ArrayString;
 use libc::{__errno_location, c_int, sem_getvalue, sem_t, sem_timedwait, sem_trywait, timespec};
 use rustix::mm::{mmap, MapFlags, ProtFlags};
 
+mod broadcast;
+
 use macros::get_field_ptr;
 
 pub const MAGIC_VALUE: u32 = 0x77256810;
@@ -48,6 +50,7 @@ pub enum RequestPayload {
     Delete(KeyType),
 }
 
+#[derive(Copy, Clone)]
 pub struct SharedRequest {
     pub magic: *mut u32,
     pub write: *mut usize,
@@ -59,10 +62,11 @@ pub struct SharedRequest {
 }
 
 unsafe impl Send for SharedRequest {}
+unsafe impl Sync for SharedRequest {}
 
 impl SharedRequest {
     pub fn from_fd(fd: OwnedFd) -> anyhow::Result<Self> {
-        let ptr = unsafe {
+        let ptr: *mut RequestFrame = unsafe {
             // Safety: Ptr is null
             mmap(
                 null_mut(),
@@ -72,6 +76,7 @@ impl SharedRequest {
                 &fd,
                 0,
             )?
+            .cast()
         };
 
         let magic: *mut u32 = get_field_ptr!(magic, RequestFrame, ptr);

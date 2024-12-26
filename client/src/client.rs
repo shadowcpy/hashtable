@@ -59,7 +59,7 @@ impl HashtableClient {
             payload: request,
         });
 
-        (*self.os.write) += 1;
+        (*self.os.write) = (*self.os.write).wrapping_add(1);
 
         sem_post(self.os.lock).r("post_lock")?;
         sem_post(self.os.count).r("post_count")?;
