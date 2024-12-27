@@ -95,63 +95,10 @@ fn main() -> anyhow::Result<()> {
         for i in 0..args.num_threads {
             let _worker = format!("{i}");
             s.spawn(|| {
-                let is = is;
-                let os = os;
-                let pop_item = || unsafe {
-                    sem_wait(is.count).r("wait_count")?;
-                    sem_wait(is.lock).r("wait_lock")?;
-
-                    let item = &mut (*is.buffer)[(*is.read) & (REQ_BUFFER_SIZE - 1)];
-
-                    let data = item.assume_init();
-                    (*is.read) = (*is.read).wrapping_add(1);
-
-                    sem_post(is.lock).r("post_lock")?;
-                    sem_post(is.space).r("post_space")?;
-
-                    anyhow::Ok(data)
-                };
-                let push_item = |item: ResponseData| unsafe {
-                    sem_wait(os.tail_lock).r("wait_tail")?;
-
-                    if *os.tail_rx_cnt == 0 {
-                        sem_post(os.tail_lock).r("post_tail")?;
-                        eprintln!("All clients left the channel, dropping msg: {item:?}");
-                        return Ok(true);
-                    }
-
-                    let pos = *os.tail_pos;
-                    let rem = *os.tail_rx_cnt;
-
-                    let id = (pos & (RES_BUFFER_SIZE - 1) as u64) as usize;
-
-                    let slot = (*os.buffer)[id].assume_init_mut();
-                    let slot_lock = &raw mut slot.lock;
-
-                    sem_wait(slot_lock).r("wait_slot")?;
-
-                    if slot.rem > 0 {
-                        sem_post(slot_lock).r("post_slot")?;
-                        sem_post(os.tail_lock).r("post_tail")?;
-                        return Ok(false);
-                    }
-
-                    *os.tail_pos = (*os.tail_pos).wrapping_add(1);
-
-                    slot.pos = pos;
-                    slot.rem = rem;
-
-                    slot.val.write(item);
-
-                    sem_post(slot_lock).r("post_slot")?;
-
-                    // Notify here?
-                    sem_post(os.tail_lock).r("post_tail")?;
-
-                    anyhow::Ok(true)
-                };
+                let mut is = is;
+                let mut os = os;
                 loop {
-                    if let Ok(request) = pop_item() {
+                    if let Ok(request) = is_pop_item(&mut is) {
                         let payload = match request.payload {
                             RequestPayload::Insert(k, v) => {
                                 hm.insert(k, v);
@@ -185,7 +132,7 @@ fn main() -> anyhow::Result<()> {
                             payload,
                         };
 
-                        while !push_item(response).unwrap() {}
+                        while !os_push_item(response, &mut os).unwrap() {}
                     }
                 }
             });
@@ -193,4 +140,63 @@ fn main() -> anyhow::Result<()> {
 
         Ok(())
     })
+}
+
+fn is_pop_item(is: &mut SharedRequest) -> Result<shared::RequestData, anyhow::Error> {
+    unsafe {
+        sem_wait(is.count).r("wait_count")?;
+        sem_wait(is.lock).r("wait_lock")?;
+
+        let item = &mut (*is.buffer)[(*is.read) & (REQ_BUFFER_SIZE - 1)];
+
+        let data = item.assume_init();
+        (*is.read) = (*is.read).wrapping_add(1);
+
+        sem_post(is.lock).r("post_lock")?;
+        sem_post(is.space).r("post_space")?;
+
+        anyhow::Ok(data)
+    }
+}
+
+fn os_push_item(item: ResponseData, os: &mut SharedResponse) -> Result<bool, anyhow::Error> {
+    unsafe {
+        sem_wait(os.tail_lock).r("wait_tail")?;
+
+        if *os.tail_rx_cnt == 0 {
+            sem_post(os.tail_lock).r("post_tail")?;
+            eprintln!("All clients left the channel, dropping msg: {item:?}");
+            return Ok(true);
+        }
+
+        let pos = *os.tail_pos;
+        let rem = *os.tail_rx_cnt;
+
+        let id = (pos & (RES_BUFFER_SIZE - 1) as u64) as usize;
+
+        let slot = (*os.buffer)[id].assume_init_mut();
+        let slot_lock = &raw mut slot.lock;
+
+        sem_wait(slot_lock).r("wait_slot")?;
+
+        if slot.rem > 0 {
+            sem_post(slot_lock).r("post_slot")?;
+            sem_post(os.tail_lock).r("post_tail")?;
+            return Ok(false);
+        }
+
+        *os.tail_pos = (*os.tail_pos).wrapping_add(1);
+
+        slot.pos = pos;
+        slot.rem = rem;
+
+        slot.val.write(item);
+
+        sem_post(slot_lock).r("post_slot")?;
+
+        // Notify here?
+        sem_post(os.tail_lock).r("post_tail")?;
+
+        anyhow::Ok(true)
+    }
 }

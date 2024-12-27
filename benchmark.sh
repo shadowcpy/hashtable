@@ -26,7 +26,7 @@ do_bm() {
   NUM_CLIENTS=$4
   INNER_LOOP=$5
   OUTER_LOOP=$6
-  WARMUP_RUNS=${7:-40}
+  WARMUP_RUNS=${7:-100}
 
   echo "-- Benchmark $NAME (server -s $HM_SIZE -n $NUM_THREADS) ($NUM_CLIENTS bg clients, iLoop iterations $INNER_LOOP) --"
 
