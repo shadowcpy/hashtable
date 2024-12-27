@@ -70,6 +70,15 @@ fn main() {
         text(alone_many_mt),
         alone_many_mt,
     );
+
+    println!();
+
+    let vis_mt_st = 1.0 / (many_mt.mean / many_st.mean);
+    println!(
+        "16 visitors at 16 threads {} 16 visitors at 1 thread: {:.02}x",
+        text(vis_mt_st),
+        vis_mt_st,
+    );
 }
 
 fn load_csv(name: &str) -> Record {
