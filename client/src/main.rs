@@ -48,7 +48,7 @@ fn benchmark(
 ) -> anyhow::Result<()> {
     let mut rng = rand::thread_rng();
 
-    let recv = |client: &mut HashtableClient| unsafe {
+    let recv = |client: &mut HashtableClient| {
         let response = loop {
             match client.try_recv()? {
                 Some(response) => break response,

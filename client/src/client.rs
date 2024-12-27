@@ -1,7 +1,14 @@
-use std::time::Duration;
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, TryRecvError},
+        Arc,
+    },
+    thread::{self, JoinHandle},
+};
 
 use anyhow::{bail, Context};
-use libc::{sem_post, sem_wait, ETIMEDOUT};
+use libc::{sem_post, sem_wait};
 use rand::Rng;
 use rustix::{
     fs::Mode,
@@ -9,14 +16,16 @@ use rustix::{
 };
 
 use shared::{
-    sema_trywait, sema_wait_timeout, CheckOk, RequestData, RequestPayload, ResponseData,
-    SharedRequest, SharedResponse, MAGIC_VALUE, REQ_BUFFER_SIZE, SHM_REQUEST, SHM_RESPONSE,
+    CheckOk, RequestData, RequestPayload, ResponseData, SharedRequest, SharedResponse, MAGIC_VALUE,
+    REQ_BUFFER_SIZE, RES_BUFFER_SIZE, SHM_REQUEST, SHM_RESPONSE,
 };
 
 pub struct HashtableClient {
     client_id: u32,
     os: SharedRequest,
-    is: SharedResponse,
+    shutdown: Arc<AtomicBool>,
+    responses: Receiver<ResponseData>,
+    response_thread: Option<JoinHandle<anyhow::Result<()>>>,
 }
 
 impl HashtableClient {
@@ -37,14 +46,66 @@ impl HashtableClient {
         let mut rng = rand::thread_rng();
         let client_id: u32 = rng.gen();
 
+        let (snd_responses, responses) = mpsc::channel();
+
+        let shutdown = Arc::new(AtomicBool::new(false));
+        let s = shutdown.clone();
+
+        let mut read_next;
         unsafe {
-            sem_wait(is.readers).r("wait_readers")?;
-            eprintln!("Joining session with {} other clients", *is.num_readers);
-            *is.num_readers += 1;
-            sem_post(is.readers).r("post_readers")?;
+            sem_wait(is.tail_lock).r("wait_tail")?;
+            *is.tail_rx_cnt = (*is.tail_rx_cnt).checked_add(1).unwrap();
+            read_next = *is.tail_pos;
+
+            sem_post(is.tail_lock).r("post_tail")?;
         }
 
-        Ok(Self { client_id, os, is })
+        let response_thread = thread::spawn(move || {
+            let mut is = is;
+
+            while !s.load(Ordering::Relaxed) {
+                let msg = Self::inner_try_recv(&mut read_next, &mut is)?;
+                if let Some(msg) = msg {
+                    if msg.client_id != client_id {
+                        continue;
+                    }
+                    if snd_responses.send(msg).is_err() {
+                        break;
+                    }
+                }
+            }
+
+            // Safety: Shuts down the client, leaving the response stream
+            // Must not be called twice, and must be called before exiting (drop will automatically call it)
+
+            sem_wait(is.tail_lock).r("wait_tail")?;
+
+            *is.tail_rx_cnt -= 1;
+            let until = *is.tail_pos;
+
+            sem_post(is.tail_lock).r("post_tail")?;
+
+            while read_next < until {
+                match Self::inner_try_recv(&mut read_next, &mut is) {
+                    Ok(Some(_)) => {}
+                    Ok(None) => panic!("empty channel?"),
+                    Err(e) => {
+                        eprintln!("encountered leave error {e}")
+                    }
+                }
+            }
+            eprintln!("Left session");
+
+            anyhow::Ok(())
+        });
+
+        Ok(Self {
+            client_id,
+            os,
+            responses,
+            response_thread: Some(response_thread),
+            shutdown,
+        })
     }
 
     pub unsafe fn send(&mut self, request: RequestPayload, id: u32) -> anyhow::Result<()> {
@@ -59,93 +120,98 @@ impl HashtableClient {
             payload: request,
         });
 
-        (*self.os.write) = (*self.os.write).wrapping_add(1);
+        *self.os.write = (*self.os.write).wrapping_add(1);
 
         sem_post(self.os.lock).r("post_lock")?;
         sem_post(self.os.count).r("post_count")?;
         anyhow::Ok(())
     }
 
-    pub unsafe fn try_recv(&mut self) -> anyhow::Result<Option<ResponseData>> {
-        let is = &self.is;
-        loop {
-            match sema_wait_timeout(is.write_complete, Duration::from_millis(20)) {
-                0 => break,
-                ETIMEDOUT => {
+    pub fn try_recv(&mut self) -> anyhow::Result<Option<ResponseData>> {
+        let val = self.responses.try_recv();
+        match val {
+            Ok(t) => Ok(Some(t)),
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(_) => bail!("recv error"),
+        }
+    }
+
+    unsafe fn inner_try_recv(
+        read_next: &mut u64,
+        is: &mut SharedResponse,
+    ) -> anyhow::Result<Option<ResponseData>> {
+        let id = (*read_next & (RES_BUFFER_SIZE - 1) as u64) as usize;
+        let slot = (*is.buffer)[id].assume_init_mut();
+
+        let slot_lock = &raw mut slot.lock;
+        sem_wait(slot_lock).r("wait_slot")?;
+
+        if slot.pos != *read_next {
+            sem_post(slot_lock).r("post_slot")?;
+            sem_wait(is.tail_lock).r("wait_tail")?;
+            sem_wait(slot_lock).r("wait_slot")?;
+
+            if slot.pos != *read_next {
+                let next_pos = slot.pos.wrapping_add(RES_BUFFER_SIZE as u64);
+
+                if next_pos == *read_next {
+                    // Channel Empty
+                    sem_post(slot_lock).r("post_slot")?;
+                    sem_post(is.tail_lock).r("post_tail")?;
                     return Ok(None);
+                } else {
+                    // Lagged behind
+                    let next = (*is.tail_pos).wrapping_sub(RES_BUFFER_SIZE as u64);
+                    let missed = next.wrapping_sub(*read_next);
+
+                    sem_post(is.tail_lock).r("post_tail")?;
+
+                    if missed == 0 {
+                        *read_next = read_next.wrapping_add(1);
+                        let value = slot.val.assume_init_read();
+                        let orig_rem = slot.rem;
+                        slot.rem -= 1;
+                        if orig_rem == 1 {
+                            // Last receiver, drop
+                            slot.val.assume_init_drop();
+                        }
+                        sem_post(slot_lock).r("post_slot")?;
+                        return Ok(Some(value));
+                    } else {
+                        *read_next = next;
+                        sem_post(slot_lock).r("post_slot")?;
+                        eprintln!("lagged {missed} frames");
+                        bail!("lagged!");
+                    }
                 }
-                e => bail!("wait_write_complete: {e}"),
-            }
-        }
-
-        sem_wait(is.count_mutex).r("wait_count_mutex")?;
-        *is.count += 1;
-        let n = *is.num_readers;
-        if *is.count == n {
-            sem_wait(is.barrier2).r("wait_barrier2")?;
-            sem_post(is.barrier1).r("post_barrier1")?;
-        }
-
-        sem_post(is.count_mutex).r("post_count_mutex")?;
-
-        sem_wait(is.barrier1).r("wait_barrier1")?;
-
-        sem_post(is.barrier1).r("post_barrier1")?;
-
-        let data = *is.data;
-        let data = if data.client_id == self.client_id {
-            Some(data)
-        } else {
-            None
-        };
-
-        sem_wait(is.count_mutex).r("wait_count_mutex")?;
-        *is.count -= 1;
-        if *is.count == 0 {
-            sem_wait(is.barrier1).r("wait_barrier1")?;
-            sem_post(is.barrier2).r("post_barrier2")?;
-            sem_post(is.read_complete).r("post_read_complete")?;
-        }
-        sem_post(is.count_mutex).r("post_count_mutex")?;
-
-        sem_wait(is.barrier2).r("wait_barrier2")?;
-        sem_post(is.barrier2).r("post_barrier2")?;
-        return Ok(data);
-    }
-
-    /// Safety: Shuts down the client, leaving the response stream
-    /// Must not be called twice, and must be called before exiting (drop will automatically call it)
-    pub unsafe fn shutdown(&mut self) -> anyhow::Result<()> {
-        loop {
-            let exit_attempt = unsafe { self.try_exit()? };
-            if exit_attempt {
-                return Ok(());
             } else {
-                // Deadlock prevention: Cycle must be completed if exit is not possible in this round
-                let _ = self.try_recv();
+                sem_post(is.tail_lock).r("post_tail")?;
             }
         }
+
+        *read_next = read_next.wrapping_add(1);
+        let value = slot.val.assume_init_read();
+        let orig_rem = slot.rem;
+        slot.rem -= 1;
+        if orig_rem == 1 {
+            // Last receiver, drop
+            slot.val.assume_init_drop();
+        }
+        sem_post(slot_lock).r("post_slot")?;
+        return Ok(Some(value));
     }
 
-    /// Try to exit the current session
-    /// Returns true if successful
-    unsafe fn try_exit(&self) -> anyhow::Result<bool> {
-        let is = &self.is;
-        // If we want to leave, try to lock num_readers,
-        // before the server can start the next round
-        if sema_trywait(is.readers) == 0 {
-            *is.num_readers -= 1;
-            sem_post(is.readers).r("post_readers")?;
-            eprintln!("Left session");
-            Ok(true)
-        } else {
-            Ok(false)
+    pub fn shutdown(&mut self) -> anyhow::Result<()> {
+        self.shutdown.store(true, Ordering::Relaxed);
+        if let Some(t) = self.response_thread.take() {
+            t.join().unwrap()?;
         }
+        Ok(())
     }
 }
 
 impl Drop for HashtableClient {
     fn drop(&mut self) {
-        unsafe { self.shutdown().unwrap() }
+        self.shutdown().unwrap()
     }
 }

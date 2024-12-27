@@ -10,8 +10,6 @@ use arrayvec::ArrayString;
 use libc::{__errno_location, c_int, sem_getvalue, sem_t, sem_timedwait, sem_trywait, timespec};
 use rustix::mm::{mmap, MapFlags, ProtFlags};
 
-mod broadcast;
-
 use macros::get_field_ptr;
 
 pub const MAGIC_VALUE: u32 = 0x77256810;
@@ -19,6 +17,7 @@ pub const SHM_REQUEST: &str = "/hashtable_req";
 pub const SHM_RESPONSE: &str = "/hashtable_res";
 
 pub const REQ_BUFFER_SIZE: usize = 1024;
+pub const RES_BUFFER_SIZE: usize = 1024;
 
 pub type KeyType = ArrayString<64>;
 
@@ -101,18 +100,21 @@ impl SharedRequest {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone)]
 pub struct ResponseFrame {
     magic: u32,
-    readers: sem_t,
-    num_readers: u32,
-    barrier1: sem_t,
-    barrier2: sem_t,
-    read_complete: sem_t,
-    write_complete: sem_t,
-    count_mutex: sem_t,
-    count: u32,
-    data: ResponseData,
+    buffer: [MaybeUninit<ResponseSlot>; RES_BUFFER_SIZE],
+    num_tx: usize,
+    tail_lock: sem_t,
+    tail_pos: u64,
+    tail_rx_cnt: usize,
+}
+
+#[repr(C)]
+pub struct ResponseSlot {
+    pub lock: sem_t,
+    pub rem: usize,
+    pub pos: u64,
+    pub val: MaybeUninit<ResponseData>,
 }
 
 #[repr(C)]
@@ -136,20 +138,18 @@ pub enum ResponsePayload {
     Overflow,
 }
 
+#[derive(Copy, Clone)]
 pub struct SharedResponse {
     pub magic: *mut u32,
-    pub readers: *mut sem_t,
-    pub num_readers: *mut u32,
-    pub barrier1: *mut sem_t,
-    pub barrier2: *mut sem_t,
-    pub read_complete: *mut sem_t,
-    pub write_complete: *mut sem_t,
-    pub count_mutex: *mut sem_t,
-    pub count: *mut u32,
-    pub data: *mut ResponseData,
+    pub buffer: *mut [MaybeUninit<ResponseSlot>; RES_BUFFER_SIZE],
+    pub num_tx: *mut usize,
+    pub tail_lock: *mut sem_t,
+    pub tail_pos: *mut u64,
+    pub tail_rx_cnt: *mut usize,
 }
 
 unsafe impl Send for SharedResponse {}
+unsafe impl Sync for SharedResponse {}
 
 impl SharedResponse {
     pub fn from_fd(fd: OwnedFd) -> anyhow::Result<Self> {
@@ -166,27 +166,20 @@ impl SharedResponse {
         };
 
         let magic: *mut u32 = get_field_ptr!(magic, ResponseFrame, ptr);
-        let readers: *mut sem_t = get_field_ptr!(readers, ResponseFrame, ptr);
-        let num_readers: *mut u32 = get_field_ptr!(num_readers, ResponseFrame, ptr);
-        let barrier1: *mut sem_t = get_field_ptr!(barrier1, ResponseFrame, ptr);
-        let barrier2: *mut sem_t = get_field_ptr!(barrier2, ResponseFrame, ptr);
-        let read_complete: *mut sem_t = get_field_ptr!(read_complete, ResponseFrame, ptr);
-        let write_complete: *mut sem_t = get_field_ptr!(write_complete, ResponseFrame, ptr);
-        let count_mutex: *mut sem_t = get_field_ptr!(count_mutex, ResponseFrame, ptr);
-        let count: *mut u32 = get_field_ptr!(count, ResponseFrame, ptr);
-        let data: *mut ResponseData = get_field_ptr!(data, ResponseFrame, ptr);
+        let buffer: *mut [MaybeUninit<ResponseSlot>; RES_BUFFER_SIZE] =
+            get_field_ptr!(buffer, ResponseFrame, ptr);
+        let num_tx: *mut usize = get_field_ptr!(num_tx, ResponseFrame, ptr);
+        let tail_lock: *mut sem_t = get_field_ptr!(tail_lock, ResponseFrame, ptr);
+        let tail_pos: *mut u64 = get_field_ptr!(tail_pos, ResponseFrame, ptr);
+        let tail_rx_cnt: *mut usize = get_field_ptr!(tail_rx_cnt, ResponseFrame, ptr);
 
         Ok(Self {
             magic,
-            readers,
-            num_readers,
-            barrier1,
-            barrier2,
-            read_complete,
-            write_complete,
-            count_mutex,
-            count,
-            data,
+            buffer,
+            num_tx,
+            tail_lock,
+            tail_pos,
+            tail_rx_cnt,
         })
     }
 }

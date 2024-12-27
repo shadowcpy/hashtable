@@ -1,6 +1,5 @@
 use std::{mem::MaybeUninit, process::exit, thread};
 
-use anyhow::bail;
 use clap::Parser;
 use libc::{sem_init, sem_post, sem_wait};
 use rustix::{
@@ -15,7 +14,8 @@ use cli::Args;
 use hash_table::HashTable;
 use shared::{
     CheckOk, KeyType, RequestFrame, RequestPayload, ResponseData, ResponseFrame, ResponsePayload,
-    SharedRequest, SharedResponse, MAGIC_VALUE, REQ_BUFFER_SIZE, SHM_REQUEST, SHM_RESPONSE,
+    SharedRequest, SharedResponse, MAGIC_VALUE, REQ_BUFFER_SIZE, RES_BUFFER_SIZE, SHM_REQUEST,
+    SHM_RESPONSE,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -53,12 +53,7 @@ fn main() -> anyhow::Result<()> {
 
     // Responses (output)
     unsafe {
-        sem_init(os.readers, 1, 1).r("init_global")?;
-        sem_init(os.barrier1, 1, 0).r("init_barrier1")?;
-        sem_init(os.barrier2, 1, 1).r("init_barrier1")?;
-        sem_init(os.read_complete, 1, 0).r("init_read_complete")?;
-        sem_init(os.write_complete, 1, 0).r("init_write_complete")?;
-        sem_init(os.count_mutex, 1, 1).r("init_count_mutex")?;
+        sem_init(os.tail_lock, 1, 1).r("init_taillock")?;
     }
 
     unsafe {
@@ -66,8 +61,21 @@ fn main() -> anyhow::Result<()> {
         (*is.read) = 0;
         (*is.write) = 0;
 
-        (*os.num_readers) = 0;
-        (*os.count) = 0;
+        (*os.num_tx) = args.num_threads;
+        (*os.tail_pos) = 0;
+        (*os.tail_rx_cnt) = 0;
+        (*os.buffer) = [const { MaybeUninit::uninit() }; RES_BUFFER_SIZE];
+
+        let mut index = 0;
+        for slot in (*os.buffer).iter_mut() {
+            let slot = slot.as_mut_ptr();
+            (*slot).pos = (index as u64).wrapping_sub(RES_BUFFER_SIZE as u64);
+            (*slot).rem = 0;
+            (*slot).val = MaybeUninit::uninit();
+
+            sem_init(&raw mut (*slot).lock, 1, 1).r("slot_init")?;
+            index += 1;
+        }
 
         (*is.magic) = MAGIC_VALUE;
         (*os.magic) = MAGIC_VALUE;
@@ -81,60 +89,69 @@ fn main() -> anyhow::Result<()> {
         exit(0);
     })?;
 
-    let pop_item = |is: SharedRequest| unsafe {
-        sem_wait(is.count).r("wait_count")?;
-        sem_wait(is.lock).r("wait_lock")?;
-
-        let item = &mut (*is.buffer)[(*is.read) & (REQ_BUFFER_SIZE - 1)];
-
-        let data = item.assume_init();
-        (*is.read) = (*is.read).wrapping_add(1);
-
-        sem_post(is.lock).r("post_lock")?;
-        sem_post(is.space).r("post_space")?;
-
-        anyhow::Ok(data)
-    };
-
-    let (snd_out, output) = crossbeam_channel::unbounded();
-
     println!("Server is ready to accept connections");
 
     thread::scope(|s| {
-        let output_thread = s.spawn(move || {
-            let os = os;
-            loop {
-                let next_message: ResponseData = output.recv().unwrap();
-                unsafe {
-                    // Lock join / leave
-                    sem_wait(os.readers).r("wait_readers")?;
-                    // Get current number of readers
-                    let nr = os.num_readers.read_volatile();
-                    // Send data
-                    os.data.write_volatile(next_message);
-
-                    // Wake up all readers
-                    for _ in 0..nr {
-                        sem_post(os.write_complete).r("post_wc")?;
-                    }
-                    // If there is at least one reader, wait for the barrier finalization signal / thread
-                    if nr > 0 {
-                        sem_wait(os.read_complete).r("wait_rc")?;
-                    }
-                    // Unlock join / leave
-                    if sem_post(os.readers) != 0 {
-                        bail!("post_readers");
-                    }
-                }
-            }
-        });
-
         for i in 0..args.num_threads {
             let _worker = format!("{i}");
             s.spawn(|| {
                 let is = is;
+                let os = os;
+                let pop_item = || unsafe {
+                    sem_wait(is.count).r("wait_count")?;
+                    sem_wait(is.lock).r("wait_lock")?;
+
+                    let item = &mut (*is.buffer)[(*is.read) & (REQ_BUFFER_SIZE - 1)];
+
+                    let data = item.assume_init();
+                    (*is.read) = (*is.read).wrapping_add(1);
+
+                    sem_post(is.lock).r("post_lock")?;
+                    sem_post(is.space).r("post_space")?;
+
+                    anyhow::Ok(data)
+                };
+                let push_item = |item: ResponseData| unsafe {
+                    sem_wait(os.tail_lock).r("wait_tail")?;
+
+                    if *os.tail_rx_cnt == 0 {
+                        sem_post(os.tail_lock).r("post_tail")?;
+                        eprintln!("All clients left the channel, dropping msg: {item:?}");
+                        return Ok(true);
+                    }
+
+                    let pos = *os.tail_pos;
+                    let rem = *os.tail_rx_cnt;
+
+                    let id = (pos & (RES_BUFFER_SIZE - 1) as u64) as usize;
+
+                    let slot = (*os.buffer)[id].assume_init_mut();
+                    let slot_lock = &raw mut slot.lock;
+
+                    sem_wait(slot_lock).r("wait_slot")?;
+
+                    if slot.rem > 0 {
+                        sem_post(slot_lock).r("post_slot")?;
+                        sem_post(os.tail_lock).r("post_tail")?;
+                        return Ok(false);
+                    }
+
+                    *os.tail_pos = (*os.tail_pos).wrapping_add(1);
+
+                    slot.pos = pos;
+                    slot.rem = rem;
+
+                    slot.val.write(item);
+
+                    sem_post(slot_lock).r("post_slot")?;
+
+                    // Notify here?
+                    sem_post(os.tail_lock).r("post_tail")?;
+
+                    anyhow::Ok(true)
+                };
                 loop {
-                    if let Ok(request) = pop_item(is) {
+                    if let Ok(request) = pop_item() {
                         let payload = match request.payload {
                             RequestPayload::Insert(k, v) => {
                                 hm.insert(k, v);
@@ -168,13 +185,11 @@ fn main() -> anyhow::Result<()> {
                             payload,
                         };
 
-                        snd_out.send(response).unwrap();
+                        while !push_item(response).unwrap() {}
                     }
                 }
             });
         }
-
-        output_thread.join().unwrap()?;
 
         Ok(())
     })
