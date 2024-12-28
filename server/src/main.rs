@@ -7,8 +7,10 @@ use std::{
 
 use clap::Parser;
 use libc::{
-    pthread_rwlock_init, pthread_rwlock_unlock, pthread_rwlock_wrlock, pthread_rwlockattr_init,
-    pthread_rwlockattr_setpshared, sem_init, sem_post, sem_wait,
+    pthread_mutex_init, pthread_mutex_lock, pthread_mutex_unlock, pthread_mutexattr_init,
+    pthread_mutexattr_setpshared, pthread_rwlock_init, pthread_rwlock_unlock,
+    pthread_rwlock_wrlock, pthread_rwlockattr_init, pthread_rwlockattr_setpshared, sem_init,
+    sem_post, sem_wait,
 };
 use rustix::{
     fs::{ftruncate, Mode},
@@ -61,7 +63,11 @@ fn main() -> anyhow::Result<()> {
 
     // Responses (output)
     unsafe {
-        sem_init(os.tail_lock, 1, 1).r("init_taillock")?;
+        let mut attr = MaybeUninit::uninit();
+        pthread_mutexattr_init(attr.as_mut_ptr()).r("attr_init")?;
+        pthread_mutexattr_setpshared(attr.as_mut_ptr(), 1).r("attr_setpshared")?;
+
+        pthread_mutex_init(os.tail_lock, attr.as_ptr()).r("taillock_init")?;
     }
 
     unsafe {
@@ -176,10 +182,10 @@ fn is_pop_item(is: &mut SharedRequest) -> Result<shared::RequestData, anyhow::Er
 
 fn os_push_item(item: ResponseData, os: &mut SharedResponse) -> Result<bool, anyhow::Error> {
     unsafe {
-        sem_wait(os.tail_lock).r("wait_tail")?;
+        pthread_mutex_lock(os.tail_lock).r("wait_tail")?;
 
         if *os.tail_rx_cnt == 0 {
-            sem_post(os.tail_lock).r("post_tail")?;
+            pthread_mutex_unlock(os.tail_lock).r("post_tail")?;
             eprintln!("All clients left the channel, dropping msg: {item:?}");
             return Ok(true);
         }
@@ -196,7 +202,7 @@ fn os_push_item(item: ResponseData, os: &mut SharedResponse) -> Result<bool, any
 
         if slot.rem.load(Ordering::Relaxed) > 0 {
             pthread_rwlock_unlock(slot_lock).r("post_slot")?;
-            sem_post(os.tail_lock).r("post_tail")?;
+            pthread_mutex_unlock(os.tail_lock).r("post_tail")?;
             return Ok(false);
         }
 
@@ -210,7 +216,7 @@ fn os_push_item(item: ResponseData, os: &mut SharedResponse) -> Result<bool, any
         pthread_rwlock_unlock(slot_lock).r("post_slot")?;
 
         // Notify here?
-        sem_post(os.tail_lock).r("post_tail")?;
+        pthread_mutex_unlock(os.tail_lock).r("post_tail")?;
 
         anyhow::Ok(true)
     }

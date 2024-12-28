@@ -4,12 +4,14 @@ use std::{
         mpsc::{self, Receiver, TryRecvError},
         Arc,
     },
-    thread::{self, sleep, JoinHandle},
-    time::Duration,
+    thread::{self, JoinHandle},
 };
 
 use anyhow::{bail, Context};
-use libc::{pthread_rwlock_rdlock, pthread_rwlock_unlock, sem_post, sem_wait};
+use libc::{
+    pthread_mutex_lock, pthread_mutex_unlock, pthread_rwlock_rdlock, pthread_rwlock_unlock,
+    sem_post, sem_wait,
+};
 use rand::Rng;
 use rustix::{
     fs::Mode,
@@ -54,11 +56,11 @@ impl HashtableClient {
 
         let mut read_next;
         unsafe {
-            sem_wait(is.tail_lock).r("wait_tail")?;
+            pthread_mutex_lock(is.tail_lock).r("wait_tail")?;
             *is.tail_rx_cnt = (*is.tail_rx_cnt).checked_add(1).unwrap();
             read_next = *is.tail_pos;
 
-            sem_post(is.tail_lock).r("post_tail")?;
+            pthread_mutex_unlock(is.tail_lock).r("post_tail")?;
         }
 
         let response_thread = thread::spawn(move || {
@@ -79,12 +81,12 @@ impl HashtableClient {
             // Safety: Shuts down the client, leaving the response stream
             // Must not be called twice, and must be called before exiting (drop will automatically call it)
 
-            sem_wait(is.tail_lock).r("wait_tail")?;
+            pthread_mutex_lock(is.tail_lock).r("wait_tail")?;
 
             *is.tail_rx_cnt -= 1;
             let until = *is.tail_pos;
 
-            sem_post(is.tail_lock).r("post_tail")?;
+            pthread_mutex_unlock(is.tail_lock).r("post_tail")?;
 
             while read_next < until {
                 match Self::inner_try_recv(&mut read_next, &mut is) {
@@ -150,16 +152,9 @@ impl HashtableClient {
         if slot.pos != *read_next {
             // Channel Empty
             pthread_rwlock_unlock(slot_lock).r("post_slot")?;
-            sem_wait(is.tail_lock).r("wait_tail")?;
-            pthread_rwlock_rdlock(slot_lock).r("wait_slot")?;
-
-            // Channel still empty? (lock-reaquisition)
-            if slot.pos != *read_next {
-                pthread_rwlock_unlock(slot_lock).r("post_slot")?;
-                sem_post(is.tail_lock).r("post_tail")?;
-                return Ok(None);
-            }
-            sem_post(is.tail_lock).r("post_tail")?;
+            pthread_mutex_lock(is.tail_lock).r("wait_tail")?;
+            pthread_mutex_unlock(is.tail_lock).r("post_tail")?;
+            return Ok(None);
         }
 
         *read_next = read_next.wrapping_add(1);

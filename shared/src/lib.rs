@@ -9,8 +9,8 @@ use std::{
 use anyhow::bail;
 use arrayvec::ArrayString;
 use libc::{
-    __errno_location, c_int, pthread_rwlock_t, sem_getvalue, sem_t, sem_timedwait, sem_trywait,
-    timespec,
+    __errno_location, c_int, pthread_mutex_t, pthread_rwlock_t, sem_getvalue, sem_t, sem_timedwait,
+    sem_trywait, timespec,
 };
 use rustix::mm::{mmap, MapFlags, ProtFlags};
 
@@ -108,7 +108,7 @@ pub struct ResponseFrame {
     magic: u32,
     buffer: [MaybeUninit<ResponseSlot>; RES_BUFFER_SIZE],
     num_tx: usize,
-    tail_lock: sem_t,
+    tail_lock: pthread_mutex_t,
     tail_pos: u64,
     tail_rx_cnt: usize,
 }
@@ -147,7 +147,7 @@ pub struct SharedResponse {
     pub magic: *mut u32,
     pub buffer: *mut [MaybeUninit<ResponseSlot>; RES_BUFFER_SIZE],
     pub num_tx: *mut usize,
-    pub tail_lock: *mut sem_t,
+    pub tail_lock: *mut pthread_mutex_t,
     pub tail_pos: *mut u64,
     pub tail_rx_cnt: *mut usize,
 }
@@ -173,7 +173,7 @@ impl SharedResponse {
         let buffer: *mut [MaybeUninit<ResponseSlot>; RES_BUFFER_SIZE] =
             get_field_ptr!(buffer, ResponseFrame, ptr);
         let num_tx: *mut usize = get_field_ptr!(num_tx, ResponseFrame, ptr);
-        let tail_lock: *mut sem_t = get_field_ptr!(tail_lock, ResponseFrame, ptr);
+        let tail_lock: *mut pthread_mutex_t = get_field_ptr!(tail_lock, ResponseFrame, ptr);
         let tail_pos: *mut u64 = get_field_ptr!(tail_pos, ResponseFrame, ptr);
         let tail_rx_cnt: *mut usize = get_field_ptr!(tail_rx_cnt, ResponseFrame, ptr);
 
