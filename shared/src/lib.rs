@@ -12,9 +12,13 @@ use libc::{
     __errno_location, c_int, pthread_cond_t, pthread_cond_timedwait, pthread_mutex_t,
     pthread_rwlock_t, sem_getvalue, sem_t, sem_timedwait, sem_trywait, timespec,
 };
+use primitives::Semaphore;
 use rustix::mm::{mmap, MapFlags, ProtFlags};
 
 use macros::get_field_ptr;
+
+pub mod primitives;
+pub mod shm;
 
 pub const MAGIC_VALUE: u32 = 0x77256810;
 pub const SHM_REQUEST: &str = "/hashtable_req";
@@ -26,13 +30,13 @@ pub const RES_BUFFER_SIZE: usize = 1024;
 pub type KeyType = ArrayString<64>;
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug)]
 pub struct RequestFrame {
     magic: u32,
     write: usize,
     read: usize,
     count: sem_t,
-    space: sem_t,
+    space: Semaphore,
     lock: sem_t,
     buffer: [MaybeUninit<RequestData>; REQ_BUFFER_SIZE],
 }
@@ -59,7 +63,7 @@ pub struct SharedRequest {
     pub write: *mut usize,
     pub read: *mut usize,
     pub count: *mut sem_t,
-    pub space: *mut sem_t,
+    pub space: *mut Semaphore,
     pub lock: *mut sem_t,
     pub buffer: *mut [MaybeUninit<RequestData>; REQ_BUFFER_SIZE],
 }
@@ -86,7 +90,7 @@ impl SharedRequest {
         let write: *mut usize = get_field_ptr!(write, RequestFrame, ptr);
         let read: *mut usize = get_field_ptr!(read, RequestFrame, ptr);
         let count: *mut sem_t = get_field_ptr!(count, RequestFrame, ptr);
-        let space: *mut sem_t = get_field_ptr!(space, RequestFrame, ptr);
+        let space: *mut Semaphore = get_field_ptr!(space, RequestFrame, ptr);
         let lock: *mut sem_t = get_field_ptr!(lock, RequestFrame, ptr);
         let buffer: *mut [MaybeUninit<RequestData>; REQ_BUFFER_SIZE] =
             get_field_ptr!(buffer, RequestFrame, ptr);

@@ -112,7 +112,7 @@ impl HashtableClient {
     }
 
     pub unsafe fn send(&mut self, request: RequestPayload, id: u32) -> anyhow::Result<()> {
-        sem_wait(self.os.space).r("wait_space")?;
+        (*self.os.space).wait();
         sem_wait(self.os.lock).r("wait_lock")?;
 
         let item = &mut (*self.os.buffer)[(*self.os.write) & (REQ_BUFFER_SIZE - 1)];

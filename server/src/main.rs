@@ -23,9 +23,9 @@ pub mod hash_table;
 use cli::Args;
 use hash_table::HashTable;
 use shared::{
-    CheckOk, KeyType, RequestFrame, RequestPayload, ResponseData, ResponseFrame, ResponsePayload,
-    SharedRequest, SharedResponse, MAGIC_VALUE, REQ_BUFFER_SIZE, RES_BUFFER_SIZE, SHM_REQUEST,
-    SHM_RESPONSE,
+    primitives::Semaphore, CheckOk, KeyType, RequestFrame, RequestPayload, ResponseData,
+    ResponseFrame, ResponsePayload, SharedRequest, SharedResponse, MAGIC_VALUE, REQ_BUFFER_SIZE,
+    RES_BUFFER_SIZE, SHM_REQUEST, SHM_RESPONSE,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -57,7 +57,8 @@ fn main() -> anyhow::Result<()> {
     // Requests (input)
     unsafe {
         sem_init(is.count, 1, 0).r("init_count")?;
-        sem_init(is.space, 1, REQ_BUFFER_SIZE as u32).r("init_space")?;
+        let space = Semaphore::new(REQ_BUFFER_SIZE as u32, true);
+        *is.space = space;
         sem_init(is.lock, 1, 1).r("init_lock")?;
     }
 
@@ -174,7 +175,7 @@ fn is_pop_item(is: &mut SharedRequest) -> Result<shared::RequestData, anyhow::Er
         (*is.read) = (*is.read).wrapping_add(1);
 
         sem_post(is.lock).r("post_lock")?;
-        sem_post(is.space).r("post_space")?;
+        (*is.space).post();
 
         anyhow::Ok(data)
     }
