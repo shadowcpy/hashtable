@@ -55,6 +55,8 @@ record_perf() {
   perf record -s --call-graph dwarf -o "analysis/perf_client_${NUM_CLIENTS}c_${NUM_THREADS}thr_${HM_SIZE}hms" \
     target/benchmark/client 1000 $INNER_LOOP
 
+  perf stat target/benchmark/client 1000 $INNER_LOOP
+
     if (( $NUM_CLIENTS > 0 )); then
         for pid in "${CLIENT_PIDS[@]}"
         do

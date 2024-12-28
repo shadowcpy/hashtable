@@ -4,7 +4,8 @@ use std::{
         mpsc::{self, Receiver, TryRecvError},
         Arc,
     },
-    thread::{self, JoinHandle},
+    thread::{self, sleep, JoinHandle},
+    time::Duration,
 };
 
 use anyhow::{bail, Context};
@@ -147,45 +148,18 @@ impl HashtableClient {
         pthread_rwlock_rdlock(slot_lock).r("wait_slot")?;
 
         if slot.pos != *read_next {
+            // Channel Empty
             pthread_rwlock_unlock(slot_lock).r("post_slot")?;
             sem_wait(is.tail_lock).r("wait_tail")?;
             pthread_rwlock_rdlock(slot_lock).r("wait_slot")?;
 
+            // Channel still empty? (lock-reaquisition)
             if slot.pos != *read_next {
-                let next_pos = slot.pos.wrapping_add(RES_BUFFER_SIZE as u64);
-
-                if next_pos == *read_next {
-                    // Channel Empty
-                    pthread_rwlock_unlock(slot_lock).r("post_slot")?;
-                    sem_post(is.tail_lock).r("post_tail")?;
-                    return Ok(None);
-                } else {
-                    // Lagged behind
-                    let next = (*is.tail_pos).wrapping_sub(RES_BUFFER_SIZE as u64);
-                    let missed = next.wrapping_sub(*read_next);
-
-                    sem_post(is.tail_lock).r("post_tail")?;
-
-                    if missed == 0 {
-                        *read_next = read_next.wrapping_add(1);
-                        let value = slot.val.assume_init_read();
-                        let orig_rem = slot.rem.fetch_sub(1, Ordering::Relaxed);
-                        if orig_rem == 1 {
-                            // Last receiver, drop
-                            slot.val.assume_init_drop();
-                        }
-                        pthread_rwlock_unlock(slot_lock).r("post_slot")?;
-                        return Ok(Some(value));
-                    } else {
-                        *read_next = next;
-                        pthread_rwlock_unlock(slot_lock).r("post_slot")?;
-                        eprintln!("lagged {missed} frames");
-                        bail!("lagged!");
-                    }
-                }
-            } else {
+                pthread_rwlock_unlock(slot_lock).r("post_slot")?;
                 sem_post(is.tail_lock).r("post_tail")?;
+                return Ok(None);
             }
+            sem_post(is.tail_lock).r("post_tail")?;
         }
 
         *read_next = read_next.wrapping_add(1);
