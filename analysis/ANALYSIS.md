@@ -13,19 +13,21 @@ When running the benchmarks with `make bench`, one can see an output similar to 
 --- Summary ---
 
 alone at 16 threads is slower than alone at 1 thread: 0.89x
-alone at 32 threads is slower than alone at 1 thread: 0.83x
+alone at 32 threads is slower than alone at 1 thread: 0.85x
 
-alone at 1 thread is faster than one visitor at 1 thread: 1.64x
-alone at 1 thread is faster than 16 visitors at 1 thread: 52.09x
+alone at 1 thread is faster than one visitor at 1 thread: 1.60x
+alone at 1 thread is faster than 16 visitors at 1 thread: 51.31x
 
-alone at 16 threads is faster than one visitor at 16 threads: 1.62x
-alone at 16 threads is faster than 16 visitors at 16 threads: 51.28x
+alone at 16 threads is faster than one visitor at 16 threads: 1.68x
+alone at 16 threads is faster than 16 visitors at 16 threads: 49.14x
+
+16 visitors at 16 threads is slower than 16 visitors at 1 thread: 0.93x
 ```
 
 This suggests that:
 - The overhead for dispatching requests to the worker threads is significant (line 2)
 - The payoff is nearly non-existant, as soon as multiple threads join the session, all clients experience
-severe performance degradation (line 4) and multithreading does not help (line 6)
+severe performance degradation (line 4) and multithreading does not help (lines 6 and 7)
 
 ## Perf Evaluation
 Looking at the server perf metrics obtained via `make perf` in HotSpot, the bottlenecks become clear:
