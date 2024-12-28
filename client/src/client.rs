@@ -5,12 +5,13 @@ use std::{
         Arc,
     },
     thread::{self, JoinHandle},
+    time::Duration,
 };
 
 use anyhow::{bail, Context};
 use libc::{
-    pthread_mutex_lock, pthread_mutex_unlock, pthread_rwlock_rdlock, pthread_rwlock_unlock,
-    sem_post, sem_wait,
+    pthread_mutex_lock, pthread_mutex_t, pthread_mutex_unlock, pthread_rwlock_rdlock,
+    pthread_rwlock_t, pthread_rwlock_unlock, sem_post, sem_wait, ETIMEDOUT,
 };
 use rand::Rng;
 use rustix::{
@@ -19,8 +20,8 @@ use rustix::{
 };
 
 use shared::{
-    CheckOk, RequestData, RequestPayload, ResponseData, SharedRequest, SharedResponse, MAGIC_VALUE,
-    REQ_BUFFER_SIZE, RES_BUFFER_SIZE, SHM_REQUEST, SHM_RESPONSE,
+    cond_wait_timeout, CheckOk, RequestData, RequestPayload, ResponseData, SharedRequest,
+    SharedResponse, MAGIC_VALUE, REQ_BUFFER_SIZE, RES_BUFFER_SIZE, SHM_REQUEST, SHM_RESPONSE,
 };
 
 pub struct HashtableClient {
@@ -130,6 +131,11 @@ impl HashtableClient {
         anyhow::Ok(())
     }
 
+    pub unsafe fn unlock_mis(sl: *mut pthread_rwlock_t) -> anyhow::Result<()> {
+        pthread_rwlock_unlock(sl).r("post_slot")?;
+        Ok(())
+    }
+
     pub fn try_recv(&mut self) -> anyhow::Result<Option<ResponseData>> {
         let val = self.responses.try_recv();
         match val {
@@ -147,14 +153,27 @@ impl HashtableClient {
         let slot = (*is.buffer)[id].assume_init_mut();
 
         let slot_lock = &raw mut slot.lock;
-        pthread_rwlock_rdlock(slot_lock).r("wait_slot")?;
 
+        pthread_rwlock_rdlock(slot_lock).r("wait_slot")?;
         if slot.pos != *read_next {
-            // Channel Empty
             pthread_rwlock_unlock(slot_lock).r("post_slot")?;
             pthread_mutex_lock(is.tail_lock).r("wait_tail")?;
             pthread_mutex_unlock(is.tail_lock).r("post_tail")?;
             return Ok(None);
+            pthread_mutex_lock(is.tail_lock).r("wait_tail")?;
+
+            match cond_wait_timeout(is.cond, is.tail_lock, Duration::from_nanos(100)) {
+                0 => {
+                    pthread_mutex_unlock(is.tail_lock).r("post_tail")?;
+                    pthread_rwlock_rdlock(slot_lock).r("wait_slot")?;
+                    if slot.pos != *read_next {
+                        Self::unlock_mis(slot_lock)?;
+                        return Ok(None);
+                    }
+                }
+                ETIMEDOUT => return Ok(None),
+                e => bail!("cond_wait: {e}"),
+            }
         }
 
         *read_next = read_next.wrapping_add(1);
