@@ -2,12 +2,16 @@ use std::{
     mem::{offset_of, MaybeUninit},
     os::fd::OwnedFd,
     ptr::null_mut,
+    sync::atomic::AtomicUsize,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::bail;
 use arrayvec::ArrayString;
-use libc::{__errno_location, c_int, sem_getvalue, sem_t, sem_timedwait, sem_trywait, timespec};
+use libc::{
+    __errno_location, c_int, pthread_rwlock_t, sem_getvalue, sem_t, sem_timedwait, sem_trywait,
+    timespec,
+};
 use rustix::mm::{mmap, MapFlags, ProtFlags};
 
 use macros::get_field_ptr;
@@ -111,8 +115,8 @@ pub struct ResponseFrame {
 
 #[repr(C)]
 pub struct ResponseSlot {
-    pub lock: sem_t,
-    pub rem: usize,
+    pub lock: pthread_rwlock_t,
+    pub rem: AtomicUsize,
     pub pos: u64,
     pub val: MaybeUninit<ResponseData>,
 }

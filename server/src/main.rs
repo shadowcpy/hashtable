@@ -1,7 +1,15 @@
-use std::{mem::MaybeUninit, process::exit, thread};
+use std::{
+    mem::MaybeUninit,
+    process::exit,
+    sync::atomic::{AtomicUsize, Ordering},
+    thread,
+};
 
 use clap::Parser;
-use libc::{sem_init, sem_post, sem_wait};
+use libc::{
+    pthread_rwlock_init, pthread_rwlock_unlock, pthread_rwlock_wrlock, pthread_rwlockattr_init,
+    pthread_rwlockattr_setpshared, sem_init, sem_post, sem_wait,
+};
 use rustix::{
     fs::{ftruncate, Mode},
     shm::{self, OFlags},
@@ -70,10 +78,17 @@ fn main() -> anyhow::Result<()> {
         for slot in (*os.buffer).iter_mut() {
             let slot = slot.as_mut_ptr();
             (*slot).pos = (index as u64).wrapping_sub(RES_BUFFER_SIZE as u64);
-            (*slot).rem = 0;
+            (*slot).rem = AtomicUsize::new(0);
             (*slot).val = MaybeUninit::uninit();
 
-            sem_init(&raw mut (*slot).lock, 1, 1).r("slot_init")?;
+            let slot_lock = &raw mut (*slot).lock;
+
+            let mut attr = MaybeUninit::uninit();
+            pthread_rwlockattr_init(attr.as_mut_ptr()).r("attr_init")?;
+            pthread_rwlockattr_setpshared(attr.as_mut_ptr(), 1).r("attr_setpshared")?;
+
+            pthread_rwlock_init(slot_lock, attr.as_ptr()).r("slot_init")?;
+
             index += 1;
         }
 
@@ -177,10 +192,10 @@ fn os_push_item(item: ResponseData, os: &mut SharedResponse) -> Result<bool, any
         let slot = (*os.buffer)[id].assume_init_mut();
         let slot_lock = &raw mut slot.lock;
 
-        sem_wait(slot_lock).r("wait_slot")?;
+        pthread_rwlock_wrlock(slot_lock).r("wait_slot")?;
 
-        if slot.rem > 0 {
-            sem_post(slot_lock).r("post_slot")?;
+        if slot.rem.load(Ordering::Relaxed) > 0 {
+            pthread_rwlock_unlock(slot_lock).r("post_slot")?;
             sem_post(os.tail_lock).r("post_tail")?;
             return Ok(false);
         }
@@ -188,11 +203,11 @@ fn os_push_item(item: ResponseData, os: &mut SharedResponse) -> Result<bool, any
         *os.tail_pos = (*os.tail_pos).wrapping_add(1);
 
         slot.pos = pos;
-        slot.rem = rem;
+        slot.rem.store(rem, Ordering::Relaxed);
 
         slot.val.write(item);
 
-        sem_post(slot_lock).r("post_slot")?;
+        pthread_rwlock_unlock(slot_lock).r("post_slot")?;
 
         // Notify here?
         sem_post(os.tail_lock).r("post_tail")?;

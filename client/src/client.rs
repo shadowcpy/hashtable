@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::{bail, Context};
-use libc::{sem_post, sem_wait};
+use libc::{pthread_rwlock_rdlock, pthread_rwlock_unlock, sem_post, sem_wait};
 use rand::Rng;
 use rustix::{
     fs::Mode,
@@ -144,19 +144,19 @@ impl HashtableClient {
         let slot = (*is.buffer)[id].assume_init_mut();
 
         let slot_lock = &raw mut slot.lock;
-        sem_wait(slot_lock).r("wait_slot")?;
+        pthread_rwlock_rdlock(slot_lock).r("wait_slot")?;
 
         if slot.pos != *read_next {
-            sem_post(slot_lock).r("post_slot")?;
+            pthread_rwlock_unlock(slot_lock).r("post_slot")?;
             sem_wait(is.tail_lock).r("wait_tail")?;
-            sem_wait(slot_lock).r("wait_slot")?;
+            pthread_rwlock_rdlock(slot_lock).r("wait_slot")?;
 
             if slot.pos != *read_next {
                 let next_pos = slot.pos.wrapping_add(RES_BUFFER_SIZE as u64);
 
                 if next_pos == *read_next {
                     // Channel Empty
-                    sem_post(slot_lock).r("post_slot")?;
+                    pthread_rwlock_unlock(slot_lock).r("post_slot")?;
                     sem_post(is.tail_lock).r("post_tail")?;
                     return Ok(None);
                 } else {
@@ -169,17 +169,16 @@ impl HashtableClient {
                     if missed == 0 {
                         *read_next = read_next.wrapping_add(1);
                         let value = slot.val.assume_init_read();
-                        let orig_rem = slot.rem;
-                        slot.rem -= 1;
+                        let orig_rem = slot.rem.fetch_sub(1, Ordering::Relaxed);
                         if orig_rem == 1 {
                             // Last receiver, drop
                             slot.val.assume_init_drop();
                         }
-                        sem_post(slot_lock).r("post_slot")?;
+                        pthread_rwlock_unlock(slot_lock).r("post_slot")?;
                         return Ok(Some(value));
                     } else {
                         *read_next = next;
-                        sem_post(slot_lock).r("post_slot")?;
+                        pthread_rwlock_unlock(slot_lock).r("post_slot")?;
                         eprintln!("lagged {missed} frames");
                         bail!("lagged!");
                     }
@@ -191,13 +190,12 @@ impl HashtableClient {
 
         *read_next = read_next.wrapping_add(1);
         let value = slot.val.assume_init_read();
-        let orig_rem = slot.rem;
-        slot.rem -= 1;
+        let orig_rem = slot.rem.fetch_sub(1, Ordering::Relaxed);
         if orig_rem == 1 {
             // Last receiver, drop
             slot.val.assume_init_drop();
         }
-        sem_post(slot_lock).r("post_slot")?;
+        pthread_rwlock_unlock(slot_lock).r("post_slot")?;
         return Ok(Some(value));
     }
 
