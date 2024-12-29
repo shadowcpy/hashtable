@@ -114,7 +114,7 @@ impl HashtableClient {
 
     fn inner_try_recv(read_next: &mut u64, is: &ResponseFrame) -> Option<ResponseData> {
         let id = (*read_next & (RES_BUFFER_SIZE - 1) as u64) as usize;
-        let lock = unsafe { is.buffer[id].assume_init_ref() };
+        let lock = &is.buffer[id];
         let slot = lock.read();
 
         if slot.pos != *read_next {

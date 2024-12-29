@@ -1,5 +1,6 @@
 use std::{
     mem::MaybeUninit,
+    ptr,
     sync::atomic::AtomicUsize,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -10,15 +11,15 @@ use libc::{
     __errno_location, c_int, pthread_cond_t, pthread_cond_timedwait, pthread_mutex_t, sem_getvalue,
     sem_t, sem_timedwait, sem_trywait, timespec,
 };
-use primitives::{Mutex, RwLock, Semaphore};
+use sync::{Mutex, RwLock, Semaphore};
 
-use shm::ShmSafe;
+use shm::{HeapArrayInit, ShmSafe};
 
-pub mod primitives;
 pub mod shm;
+pub mod sync;
 
 pub const MAGIC_VALUE: u32 = 0x77256810;
-pub const DESCRIPTOR: &str = "/hashtable_req";
+pub const DESCRIPTOR: &str = "/hashtable";
 
 pub const REQ_BUFFER_SIZE: usize = 1024;
 pub const RES_BUFFER_SIZE: usize = 1024;
@@ -33,6 +34,67 @@ pub struct HashtableMemory {
 }
 
 unsafe impl ShmSafe for HashtableMemory {}
+
+impl HashtableMemory {
+    /// Use a custom, unsafe initializer. This is required because
+    /// the ring buffers (arrays) can overflow the stack on construction
+    /// (before being able to move them to shared memory)
+    pub unsafe fn init_in_shm(shm: *mut HashtableMemory, num_writers: usize) {
+        // Initialize Request Frame
+        {
+            let count = &raw mut (*shm).request_frame.count;
+            let space = &raw mut (*shm).request_frame.space;
+            let queue = &raw mut (*shm).request_frame.queue;
+
+            ptr::write(count, Semaphore::new(0, true));
+            ptr::write(space, Semaphore::new(REQ_BUFFER_SIZE as u32, true));
+            ptr::write(
+                queue,
+                Mutex::construct_unchecked(
+                    |queue_inner| {
+                        let queue_inner: *mut RequestQueue = queue_inner.as_mut_ptr();
+
+                        let write = &raw mut (*queue_inner).write;
+                        let read = &raw mut (*queue_inner).read;
+                        let buffer = &raw mut (*queue_inner).buffer;
+
+                        ptr::write(write, 0);
+                        ptr::write(read, 0);
+
+                        // The relevant part: initialize the array on the heap
+                        // and move it to shared memory
+                        let init_buffer = HeapArrayInit::from_fn(|_| MaybeUninit::uninit());
+                        init_buffer.move_to(buffer);
+                    },
+                    true,
+                ),
+            );
+        }
+
+        // Initialize Response Frame
+        {
+            let buffer = &raw mut (*shm).response_frame.buffer;
+            let num_tx = &raw mut (*shm).response_frame.num_tx;
+            let tail = &raw mut (*shm).response_frame.tail;
+
+            let init_buffer = HeapArrayInit::from_fn(|index| {
+                RwLock::new(
+                    ResponseSlot {
+                        rem: AtomicUsize::new(0),
+                        pos: (index as u64).wrapping_sub(RES_BUFFER_SIZE as u64),
+                        val: MaybeUninit::uninit(),
+                    },
+                    true,
+                )
+            });
+
+            init_buffer.move_to(buffer);
+
+            ptr::write(num_tx, num_writers);
+            ptr::write(tail, Mutex::new(ResponseTail { pos: 0, rx_cnt: 0 }, true));
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Debug)]
@@ -69,7 +131,7 @@ pub enum RequestPayload {
 #[repr(C)]
 #[derive(Debug)]
 pub struct ResponseFrame {
-    pub buffer: [MaybeUninit<RwLock<ResponseSlot>>; RES_BUFFER_SIZE],
+    pub buffer: [RwLock<ResponseSlot>; RES_BUFFER_SIZE],
     pub num_tx: usize,
     pub tail: Mutex<ResponseTail>,
 }

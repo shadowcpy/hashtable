@@ -8,10 +8,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="11ebbd7b-2dbe-4f7b-baae-602091c365fa" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/shared/src/primitives/mod.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/shared/src/primitives/mutex.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/shared/src/primitives/rwlock.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/analysis/benchmarks/AloneMultiThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/AloneMultiThread.csv" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/analysis/benchmarks/AloneSingleThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/AloneSingleThread.csv" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/analysis/benchmarks/ManyClientsMT.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/ManyClientsMT.csv" afterDir="false" />
@@ -20,10 +17,12 @@
       <change beforePath="$PROJECT_DIR$/analysis/benchmarks/TwoMultiThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/TwoMultiThread.csv" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/analysis/benchmarks/TwoSingleThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/TwoSingleThread.csv" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/client/src/client.rs" beforeDir="false" afterPath="$PROJECT_DIR$/client/src/client.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/client/src/main.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/server/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/shared/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/shared/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/shared/src/primitives.rs" beforeDir="false" afterPath="$PROJECT_DIR$/shared/src/primitives/semaphore.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/src/primitives/mod.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/src/primitives/mutex.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/src/primitives/rwlock.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/src/primitives/semaphore.rs" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/shared/src/shm.rs" beforeDir="false" afterPath="$PROJECT_DIR$/shared/src/shm.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -38,33 +37,37 @@
   <component name="MacroExpansionManager">
     <option name="directoryName" value="fSZaJaUB" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "customColor": "",
-  "associatedIndex": 5
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;customColor&quot;: &quot;&quot;,
+  &quot;associatedIndex&quot;: 5
+}</component>
   <component name="ProjectId" id="2qrjXbYhb4dmMAmTGRDWJLcRnVa" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Cargo.Run client.executor": "Debug",
-    "Cargo.Run server.executor": "Debug",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.rust.reset.selective.auto.import": "true",
-    "git-widget-placeholder": "main",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
-    "org.rust.first.attach.projects": "true",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Cargo.Run client.executor&quot;: &quot;Debug&quot;,
+    &quot;Cargo.Run server.executor&quot;: &quot;Debug&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.rust.reset.selective.auto.import&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
+    &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;language.rust.cargo.check&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
+  <component name="RsExternalLinterProjectSettings">
+    <option name="runOnTheFly" value="true" />
+  </component>
   <component name="RunManager" selected="Cargo.Run server">
     <configuration name="Run client" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="buildProfileId" value="dev" />
@@ -154,7 +157,9 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1735427629763</updated>
-      <workItem from="1735427631342" duration="2819000" />
+      <workItem from="1735427631342" duration="3199000" />
+      <workItem from="1735482624277" duration="11000" />
+      <workItem from="1735482908790" duration="507000" />
     </task>
     <servers />
   </component>

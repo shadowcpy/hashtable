@@ -33,6 +33,8 @@ do_bm() {
   target/benchmark/server -s $HM_SIZE -n $NUM_THREADS &> /dev/null &
   SERVER_PID=$!
 
+  sleep 1
+
   CLIENT_PIDS=()
 
   if (( $NUM_CLIENTS > 0 )); then

@@ -1,4 +1,9 @@
-use std::{mem::MaybeUninit, os::fd::OwnedFd, ptr::null_mut};
+use std::{
+    fmt::Debug,
+    mem::MaybeUninit,
+    os::fd::OwnedFd,
+    ptr::{copy_nonoverlapping, null_mut},
+};
 
 use anyhow::{bail, Context};
 use rustix::{
@@ -41,6 +46,7 @@ impl<T: ShmSafe> SharedMemory<T> {
             *contents = MaybeUninit::uninit();
 
             init(&mut *contents);
+
             *magic = MAGIC_VALUE;
         }
 
@@ -109,4 +115,26 @@ unsafe impl<T: Sync> Sync for SharedMemory<T> {}
 pub struct SharedMemoryContents<T> {
     magic: u32,
     contents: MaybeUninit<T>,
+}
+
+#[derive(Debug)]
+pub struct HeapArrayInit<T, const N: usize> {
+    inner: Vec<T>,
+}
+
+impl<T: Debug, const N: usize> HeapArrayInit<T, N> {
+    pub fn from_fn(mut init: impl FnMut(usize) -> T) -> Self {
+        let mut vec = Vec::with_capacity(N);
+        for index in 0..N {
+            vec.push(init(index));
+        }
+        Self { inner: vec }
+    }
+
+    pub unsafe fn move_to(self, target: *mut [T; N]) {
+        let slice = self.inner.into_boxed_slice();
+        let array: Box<[T; N]> = slice.try_into().unwrap();
+        let array = Box::into_raw(array);
+        copy_nonoverlapping(array, target, 1);
+    }
 }

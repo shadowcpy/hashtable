@@ -15,11 +15,11 @@ use crate::{shm::ShmSafe, CheckOk};
 #[derive(Debug)]
 pub struct Mutex<T> {
     inner: UnsafeCell<MaybeUninit<pthread_mutex_t>>,
-    data: UnsafeCell<T>,
+    data: UnsafeCell<MaybeUninit<T>>,
 }
 
 impl<T> Mutex<T> {
-    pub fn new(data: T, inter_process: bool) -> Self {
+    unsafe fn new_uninit(inter_process: bool) -> Self {
         let inner = UnsafeCell::new(MaybeUninit::uninit());
         let mut attr = MaybeUninit::uninit();
         unsafe {
@@ -40,8 +40,23 @@ impl<T> Mutex<T> {
 
         Self {
             inner,
-            data: UnsafeCell::new(data),
+            data: UnsafeCell::new(MaybeUninit::uninit()),
         }
+    }
+
+    pub fn new(data: T, inter_process: bool) -> Self {
+        let mut val = unsafe { Self::new_uninit(inter_process) };
+        val.data.get_mut().write(data);
+        val
+    }
+
+    pub unsafe fn construct_unchecked(
+        init: impl FnOnce(&mut MaybeUninit<T>),
+        inter_process: bool,
+    ) -> Self {
+        let mut val = unsafe { Self::new_uninit(inter_process) };
+        init(val.data.get_mut());
+        val
     }
 
     pub fn lock(&self) -> MutexGuard<T> {
@@ -51,7 +66,7 @@ impl<T> Mutex<T> {
             }
             MutexGuard {
                 lock: self,
-                data: &mut *self.data.get(),
+                data: (*self.data.get()).assume_init_mut(),
             }
         }
     }
