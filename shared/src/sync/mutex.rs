@@ -50,7 +50,7 @@ impl<T> Mutex<T> {
         val
     }
 
-    pub unsafe fn construct_unchecked(
+    pub unsafe fn init_unchecked(
         init: impl FnOnce(&mut MaybeUninit<T>),
         inter_process: bool,
     ) -> Self {
@@ -75,6 +75,12 @@ impl<T> Mutex<T> {
 pub struct MutexGuard<'a, T: 'a> {
     lock: &'a Mutex<T>,
     data: &'a mut T,
+}
+
+impl<'a, T: 'a> MutexGuard<'a, T> {
+    pub fn get_inner_lock(&self) -> *mut pthread_mutex_t {
+        unsafe { (*self.lock.inner.get()).as_mut_ptr() }
+    }
 }
 
 impl<T> Deref for MutexGuard<'_, T> {

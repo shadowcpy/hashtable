@@ -16,14 +16,10 @@
       <change beforePath="$PROJECT_DIR$/analysis/benchmarks/SCManyThreads.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/SCManyThreads.csv" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/analysis/benchmarks/TwoMultiThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/TwoMultiThread.csv" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/analysis/benchmarks/TwoSingleThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/TwoSingleThread.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/benchmark.sh" beforeDir="false" afterPath="$PROJECT_DIR$/benchmark.sh" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/client/src/client.rs" beforeDir="false" afterPath="$PROJECT_DIR$/client/src/client.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/server/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/shared/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/shared/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/shared/src/primitives/mod.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/shared/src/primitives/mutex.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/shared/src/primitives/rwlock.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/shared/src/primitives/semaphore.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/shared/src/shm.rs" beforeDir="false" afterPath="$PROJECT_DIR$/shared/src/shm.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -159,7 +155,7 @@
       <updated>1735427629763</updated>
       <workItem from="1735427631342" duration="3199000" />
       <workItem from="1735482624277" duration="11000" />
-      <workItem from="1735482908790" duration="507000" />
+      <workItem from="1735482908790" duration="7812000" />
     </task>
     <servers />
   </component>

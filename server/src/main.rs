@@ -72,7 +72,7 @@ fn main() -> anyhow::Result<()> {
                         payload,
                     };
 
-                    while !os_push_item(response, &mem.response_frame) {}
+                    os_push_item(response, &mem.response_frame);
                 }
             });
         }
@@ -99,12 +99,14 @@ fn is_pop_item(is: &RequestFrame) -> shared::RequestData {
     data
 }
 
-fn os_push_item(item: ResponseData, os: &ResponseFrame) -> bool {
+fn os_push_item(item: ResponseData, os: &ResponseFrame) {
+    os.space.wait();
+
     let mut tail = os.tail.lock();
 
     if tail.rx_cnt == 0 {
         eprintln!("All clients left the channel, dropping msg: {item:?}");
-        return true;
+        return;
     }
 
     let pos = tail.pos;
@@ -115,16 +117,10 @@ fn os_push_item(item: ResponseData, os: &ResponseFrame) -> bool {
     let lock = &os.buffer[id];
     let mut slot = lock.write();
 
-    if slot.rem.load(Ordering::Relaxed) > 0 {
-        return false;
-    }
-
     tail.pos = tail.pos.wrapping_add(1);
 
     slot.pos = pos;
     slot.rem.store(rem, Ordering::Relaxed);
 
     slot.val.write(item);
-
-    true
 }

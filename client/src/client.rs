@@ -5,6 +5,7 @@ use std::{
         Arc,
     },
     thread::{self, JoinHandle},
+    time::Duration,
 };
 
 use anyhow::bail;
@@ -39,7 +40,7 @@ impl HashtableClient {
         {
             let mem: &HashtableMemory = mem.get();
             let mut tail = mem.response_frame.tail.lock();
-            tail.rx_cnt = tail.rx_cnt.checked_add(1).unwrap();
+            tail.rx_cnt = tail.rx_cnt.checked_add(1).expect("too many clients");
             read_next = tail.pos;
         }
 
@@ -60,7 +61,6 @@ impl HashtableClient {
             }
 
             // Safety: Shuts down the client, leaving the response stream
-            // Must not be called twice, and must be called before exiting (drop will automatically call it)
 
             let mut tail = is.tail.lock();
             tail.rx_cnt -= 1;
@@ -119,8 +119,8 @@ impl HashtableClient {
 
         if slot.pos != *read_next {
             drop(slot);
-            let tail = is.tail.lock();
-            drop(tail);
+            // Backoff to avoid thrashing
+            thread::sleep(Duration::from_nanos(30));
             return None;
         }
 
@@ -128,8 +128,8 @@ impl HashtableClient {
         let value = unsafe { slot.val.assume_init_read() };
         let orig_rem = slot.rem.fetch_sub(1, Ordering::Relaxed);
         if orig_rem == 1 {
-            // Last receiver, drop
-            unsafe { lock.bypass().val.assume_init_drop() };
+            // Last receiver, allow overwriting of slot
+            is.space.post();
         }
 
         return Some(value);

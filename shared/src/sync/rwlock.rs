@@ -68,10 +68,6 @@ impl<T> RwLock<T> {
             }
         }
     }
-
-    pub unsafe fn bypass(&self) -> &mut T {
-        unsafe { &mut *self.data.get() }
-    }
 }
 
 pub struct RwLockReadGuard<'a, T: 'a> {

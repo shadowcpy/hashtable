@@ -69,4 +69,4 @@ record_perf() {
   wait $SERVER_PID || true
 }
 
-record_perf 10000 2 4 10
+record_perf 10000 2 4 100
