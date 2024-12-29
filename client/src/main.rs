@@ -63,7 +63,7 @@ fn benchmark(
         anyhow::Ok(response)
     };
 
-    let send = |client: &mut HashtableClient, request, id| unsafe { client.send(request, id) };
+    let send = |client: &mut HashtableClient, request, id| client.send(request, id);
 
     // Outer Iterations: Number of runs: Insert Read Delete
     let mut outer_iter = 0;
@@ -100,7 +100,7 @@ fn benchmark(
         // Insert random numbers
         for i in 0..inner_iter {
             let val = buffer[i];
-            send(client, RequestPayload::Insert(val, i as u32), i as u32)?;
+            send(client, RequestPayload::Insert(val, i as u32), i as u32);
         }
 
         // Split send and receive to allow for server concurrency
@@ -115,7 +115,7 @@ fn benchmark(
         // Verify that all values are correct
         // Send read request to HashMap
         for i in 0..inner_iter {
-            send(client, RequestPayload::ReadBucket(buffer[i]), i as u32)?;
+            send(client, RequestPayload::ReadBucket(buffer[i]), i as u32);
         }
 
         // Get read responses
@@ -144,7 +144,7 @@ fn benchmark(
         for i in 0..inner_iter {
             let val = buffer[i];
 
-            send(client, RequestPayload::Delete(val), i as u32)?;
+            send(client, RequestPayload::Delete(val), i as u32);
         }
 
         for i in 0..inner_iter {

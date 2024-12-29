@@ -7,25 +7,17 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use anyhow::{bail, Context};
-use libc::{
-    pthread_mutex_lock, pthread_mutex_unlock, pthread_rwlock_rdlock, pthread_rwlock_t,
-    pthread_rwlock_unlock, sem_post, sem_wait,
-};
+use anyhow::bail;
 use rand::Rng;
-use rustix::{
-    fs::Mode,
-    shm::{self, OFlags},
-};
 
 use shared::{
-    CheckOk, RequestData, RequestPayload, ResponseData, SharedRequest, SharedResponse, MAGIC_VALUE,
-    REQ_BUFFER_SIZE, RES_BUFFER_SIZE, SHM_REQUEST, SHM_RESPONSE,
+    shm::SharedMemory, HashtableMemory, RequestData, RequestPayload, ResponseData, ResponseFrame,
+    DESCRIPTOR, REQ_BUFFER_SIZE, RES_BUFFER_SIZE,
 };
 
 pub struct HashtableClient {
     client_id: u32,
-    os: SharedRequest,
+    mem: Arc<SharedMemory<HashtableMemory>>,
     shutdown: Arc<AtomicBool>,
     responses: Receiver<ResponseData>,
     response_thread: Option<JoinHandle<anyhow::Result<()>>>,
@@ -33,18 +25,7 @@ pub struct HashtableClient {
 
 impl HashtableClient {
     pub unsafe fn init() -> anyhow::Result<Self> {
-        let req_fd = shm::open(SHM_REQUEST, OFlags::RDWR, Mode::RUSR | Mode::WUSR)
-            .context("Opening shared memory failed")?;
-
-        let res_fd = shm::open(SHM_RESPONSE, OFlags::RDWR, Mode::RUSR | Mode::WUSR)
-            .context("Opening shared memory failed")?;
-
-        let os = SharedRequest::from_fd(req_fd)?;
-        let is = SharedResponse::from_fd(res_fd)?;
-
-        if unsafe { *is.magic } != MAGIC_VALUE || unsafe { *os.magic } != MAGIC_VALUE {
-            bail!("Server not ready yet");
-        }
+        let mem = Arc::new(SharedMemory::join(DESCRIPTOR)?);
 
         let mut rng = rand::thread_rng();
         let client_id: u32 = rng.gen();
@@ -55,19 +36,19 @@ impl HashtableClient {
         let s = shutdown.clone();
 
         let mut read_next;
-        unsafe {
-            pthread_mutex_lock(is.tail_lock).r("wait_tail")?;
-            *is.tail_rx_cnt = (*is.tail_rx_cnt).checked_add(1).unwrap();
-            read_next = *is.tail_pos;
-
-            pthread_mutex_unlock(is.tail_lock).r("post_tail")?;
+        {
+            let mem: &HashtableMemory = mem.get();
+            let mut tail = mem.response_frame.tail.lock();
+            tail.rx_cnt = tail.rx_cnt.checked_add(1).unwrap();
+            read_next = tail.pos;
         }
 
+        let imem = mem.clone();
         let response_thread = thread::spawn(move || {
-            let mut is = is;
+            let is = &imem.get().response_frame;
 
             while !s.load(Ordering::Relaxed) {
-                let msg = Self::inner_try_recv(&mut read_next, &mut is)?;
+                let msg = Self::inner_try_recv(&mut read_next, is);
                 if let Some(msg) = msg {
                     if msg.client_id != client_id {
                         continue;
@@ -81,20 +62,14 @@ impl HashtableClient {
             // Safety: Shuts down the client, leaving the response stream
             // Must not be called twice, and must be called before exiting (drop will automatically call it)
 
-            pthread_mutex_lock(is.tail_lock).r("wait_tail")?;
-
-            *is.tail_rx_cnt -= 1;
-            let until = *is.tail_pos;
-
-            pthread_mutex_unlock(is.tail_lock).r("post_tail")?;
+            let mut tail = is.tail.lock();
+            tail.rx_cnt -= 1;
+            let until = tail.pos;
 
             while read_next < until {
-                match Self::inner_try_recv(&mut read_next, &mut is) {
-                    Ok(Some(_)) => {}
-                    Ok(None) => panic!("empty channel?"),
-                    Err(e) => {
-                        eprintln!("encountered leave error {e}")
-                    }
+                match Self::inner_try_recv(&mut read_next, is) {
+                    Some(_) => {}
+                    None => panic!("empty channel?"),
                 }
             }
             eprintln!("Left session");
@@ -104,35 +79,28 @@ impl HashtableClient {
 
         Ok(Self {
             client_id,
-            os,
+            mem,
             responses,
             response_thread: Some(response_thread),
             shutdown,
         })
     }
 
-    pub unsafe fn send(&mut self, request: RequestPayload, id: u32) -> anyhow::Result<()> {
-        (*self.os.space).wait();
-        sem_wait(self.os.lock).r("wait_lock")?;
+    pub fn send(&mut self, request: RequestPayload, id: u32) {
+        let os = &self.mem.get().request_frame;
+        os.space.wait();
 
-        let item = &mut (*self.os.buffer)[(*self.os.write) & (REQ_BUFFER_SIZE - 1)];
+        let mut queue = os.queue.lock();
 
-        item.write(RequestData {
+        let qid = queue.write & (REQ_BUFFER_SIZE - 1);
+        queue.buffer[qid].write(RequestData {
             client_id: self.client_id,
             request_id: id,
             payload: request,
         });
 
-        *self.os.write = (*self.os.write).wrapping_add(1);
-
-        sem_post(self.os.lock).r("post_lock")?;
-        sem_post(self.os.count).r("post_count")?;
-        anyhow::Ok(())
-    }
-
-    pub unsafe fn unlock_mis(sl: *mut pthread_rwlock_t) -> anyhow::Result<()> {
-        pthread_rwlock_unlock(sl).r("post_slot")?;
-        Ok(())
+        queue.write = queue.write.wrapping_add(1);
+        os.count.post();
     }
 
     pub fn try_recv(&mut self) -> anyhow::Result<Option<ResponseData>> {
@@ -144,33 +112,27 @@ impl HashtableClient {
         }
     }
 
-    unsafe fn inner_try_recv(
-        read_next: &mut u64,
-        is: &mut SharedResponse,
-    ) -> anyhow::Result<Option<ResponseData>> {
+    fn inner_try_recv(read_next: &mut u64, is: &ResponseFrame) -> Option<ResponseData> {
         let id = (*read_next & (RES_BUFFER_SIZE - 1) as u64) as usize;
-        let slot = (*is.buffer)[id].assume_init_mut();
-
-        let slot_lock = &raw mut slot.lock;
-
-        pthread_rwlock_rdlock(slot_lock).r("wait_slot")?;
+        let lock = unsafe { is.buffer[id].assume_init_ref() };
+        let slot = lock.read();
 
         if slot.pos != *read_next {
-            pthread_rwlock_unlock(slot_lock).r("post_slot")?;
-            pthread_mutex_lock(is.tail_lock).r("wait_tail")?;
-            pthread_mutex_unlock(is.tail_lock).r("post_tail")?;
-            return Ok(None);
+            drop(slot);
+            let tail = is.tail.lock();
+            drop(tail);
+            return None;
         }
 
         *read_next = read_next.wrapping_add(1);
-        let value = slot.val.assume_init_read();
+        let value = unsafe { slot.val.assume_init_read() };
         let orig_rem = slot.rem.fetch_sub(1, Ordering::Relaxed);
         if orig_rem == 1 {
             // Last receiver, drop
-            slot.val.assume_init_drop();
+            unsafe { lock.bypass().val.assume_init_drop() };
         }
-        pthread_rwlock_unlock(slot_lock).r("post_slot")?;
-        return Ok(Some(value));
+
+        return Some(value);
     }
 
     pub fn shutdown(&mut self) -> anyhow::Result<()> {

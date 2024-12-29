@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
+  <component name="CargoProjects">
+    <cargoProject FILE="$PROJECT_DIR$/Cargo.toml" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="11ebbd7b-2dbe-4f7b-baae-602091c365fa" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/shared/src/primitives/mod.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/shared/src/primitives/mutex.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/shared/src/primitives/rwlock.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/AloneMultiThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/AloneMultiThread.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/AloneSingleThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/AloneSingleThread.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/ManyClientsMT.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/ManyClientsMT.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/ManyClientsST.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/ManyClientsST.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/SCManyThreads.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/SCManyThreads.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/TwoMultiThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/TwoMultiThread.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/TwoSingleThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/TwoSingleThread.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client/src/client.rs" beforeDir="false" afterPath="$PROJECT_DIR$/client/src/client.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/client/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/shared/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/src/primitives.rs" beforeDir="false" afterPath="$PROJECT_DIR$/shared/src/primitives/semaphore.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/src/shm.rs" beforeDir="false" afterPath="$PROJECT_DIR$/shared/src/shm.rs" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ExecutionTargetManager" SELECTED_TARGET="RsBuildProfile:dev" />
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="fSZaJaUB" />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "customColor": "",
+  "associatedIndex": 5
+}]]></component>
+  <component name="ProjectId" id="2qrjXbYhb4dmMAmTGRDWJLcRnVa" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Cargo.Run client.executor": "Debug",
+    "Cargo.Run server.executor": "Debug",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.rust.reset.selective.auto.import": "true",
+    "git-widget-placeholder": "main",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
+    "org.rust.first.attach.projects": "true",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RunManager" selected="Cargo.Run server">
+    <configuration name="Run client" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="buildProfileId" value="dev" />
+      <option name="command" value="run --package client --bin client -- 1 1" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <envs />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="false" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run evaluator" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package evaluator --bin evaluator" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <envs />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run server" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="run --package server --bin server -- -n 1 -s 1000 " />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <envs />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test hashtable" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="buildProfileId" value="test" />
+      <option name="command" value="test --workspace" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <envs />
+      <option name="emulateTerminal" value="true" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <list>
+      <item itemvalue="Cargo.Run client" />
+      <item itemvalue="Cargo.Run evaluator" />
+      <item itemvalue="Cargo.Run server" />
+      <item itemvalue="Cargo.Test hashtable" />
+    </list>
+  </component>
+  <component name="RustProjectSettings">
+    <option name="toolchainHomeDirectory" value="/nix/store/61cl3xwz7y6msh50j9793lgyqjl95qc2-rustup-1.27.1/bin" />
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="11ebbd7b-2dbe-4f7b-baae-602091c365fa" name="Changes" comment="" />
+      <created>1735427629763</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1735427629763</updated>
+      <workItem from="1735427631342" duration="2819000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+</project>

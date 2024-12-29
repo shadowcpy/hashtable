@@ -1,7 +1,5 @@
 use std::{
-    mem::{offset_of, MaybeUninit},
-    os::fd::OwnedFd,
-    ptr::null_mut,
+    mem::MaybeUninit,
     sync::atomic::AtomicUsize,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -9,20 +7,18 @@ use std::{
 use anyhow::bail;
 use arrayvec::ArrayString;
 use libc::{
-    __errno_location, c_int, pthread_cond_t, pthread_cond_timedwait, pthread_mutex_t,
-    pthread_rwlock_t, sem_getvalue, sem_t, sem_timedwait, sem_trywait, timespec,
+    __errno_location, c_int, pthread_cond_t, pthread_cond_timedwait, pthread_mutex_t, sem_getvalue,
+    sem_t, sem_timedwait, sem_trywait, timespec,
 };
-use primitives::Semaphore;
-use rustix::mm::{mmap, MapFlags, ProtFlags};
+use primitives::{Mutex, RwLock, Semaphore};
 
-use macros::get_field_ptr;
+use shm::ShmSafe;
 
 pub mod primitives;
 pub mod shm;
 
 pub const MAGIC_VALUE: u32 = 0x77256810;
-pub const SHM_REQUEST: &str = "/hashtable_req";
-pub const SHM_RESPONSE: &str = "/hashtable_res";
+pub const DESCRIPTOR: &str = "/hashtable_req";
 
 pub const REQ_BUFFER_SIZE: usize = 1024;
 pub const RES_BUFFER_SIZE: usize = 1024;
@@ -31,14 +27,27 @@ pub type KeyType = ArrayString<64>;
 
 #[repr(C)]
 #[derive(Debug)]
+pub struct HashtableMemory {
+    pub request_frame: RequestFrame,
+    pub response_frame: ResponseFrame,
+}
+
+unsafe impl ShmSafe for HashtableMemory {}
+
+#[repr(C)]
+#[derive(Debug)]
 pub struct RequestFrame {
-    magic: u32,
-    write: usize,
-    read: usize,
-    count: sem_t,
-    space: Semaphore,
-    lock: sem_t,
-    buffer: [MaybeUninit<RequestData>; REQ_BUFFER_SIZE],
+    pub count: Semaphore,
+    pub space: Semaphore,
+    pub queue: Mutex<RequestQueue>,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct RequestQueue {
+    pub write: usize,
+    pub read: usize,
+    pub buffer: [MaybeUninit<RequestData>; REQ_BUFFER_SIZE],
 }
 
 #[repr(C)]
@@ -57,69 +66,24 @@ pub enum RequestPayload {
     Delete(KeyType),
 }
 
-#[derive(Copy, Clone)]
-pub struct SharedRequest {
-    pub magic: *mut u32,
-    pub write: *mut usize,
-    pub read: *mut usize,
-    pub count: *mut sem_t,
-    pub space: *mut Semaphore,
-    pub lock: *mut sem_t,
-    pub buffer: *mut [MaybeUninit<RequestData>; REQ_BUFFER_SIZE],
-}
-
-unsafe impl Send for SharedRequest {}
-unsafe impl Sync for SharedRequest {}
-
-impl SharedRequest {
-    pub fn from_fd(fd: OwnedFd) -> anyhow::Result<Self> {
-        let ptr: *mut RequestFrame = unsafe {
-            // Safety: Ptr is null
-            mmap(
-                null_mut(),
-                size_of::<RequestFrame>(),
-                ProtFlags::READ | ProtFlags::WRITE,
-                MapFlags::SHARED,
-                &fd,
-                0,
-            )?
-            .cast()
-        };
-
-        let magic: *mut u32 = get_field_ptr!(magic, RequestFrame, ptr);
-        let write: *mut usize = get_field_ptr!(write, RequestFrame, ptr);
-        let read: *mut usize = get_field_ptr!(read, RequestFrame, ptr);
-        let count: *mut sem_t = get_field_ptr!(count, RequestFrame, ptr);
-        let space: *mut Semaphore = get_field_ptr!(space, RequestFrame, ptr);
-        let lock: *mut sem_t = get_field_ptr!(lock, RequestFrame, ptr);
-        let buffer: *mut [MaybeUninit<RequestData>; REQ_BUFFER_SIZE] =
-            get_field_ptr!(buffer, RequestFrame, ptr);
-
-        Ok(Self {
-            magic,
-            write,
-            read,
-            count,
-            space,
-            lock,
-            buffer,
-        })
-    }
-}
-
 #[repr(C)]
+#[derive(Debug)]
 pub struct ResponseFrame {
-    magic: u32,
-    buffer: [MaybeUninit<ResponseSlot>; RES_BUFFER_SIZE],
-    num_tx: usize,
-    tail_lock: pthread_mutex_t,
-    tail_pos: u64,
-    tail_rx_cnt: usize,
+    pub buffer: [MaybeUninit<RwLock<ResponseSlot>>; RES_BUFFER_SIZE],
+    pub num_tx: usize,
+    pub tail: Mutex<ResponseTail>,
 }
 
 #[repr(C)]
+#[derive(Debug)]
+pub struct ResponseTail {
+    pub pos: u64,
+    pub rx_cnt: usize,
+}
+
+#[repr(C)]
+#[derive(Debug)]
 pub struct ResponseSlot {
-    pub lock: pthread_rwlock_t,
     pub rem: AtomicUsize,
     pub pos: u64,
     pub val: MaybeUninit<ResponseData>,
@@ -144,52 +108,6 @@ pub enum ResponsePayload {
     Deleted,
     NotFound,
     Overflow,
-}
-
-#[derive(Copy, Clone)]
-pub struct SharedResponse {
-    pub magic: *mut u32,
-    pub buffer: *mut [MaybeUninit<ResponseSlot>; RES_BUFFER_SIZE],
-    pub num_tx: *mut usize,
-    pub tail_lock: *mut pthread_mutex_t,
-    pub tail_pos: *mut u64,
-    pub tail_rx_cnt: *mut usize,
-}
-
-unsafe impl Send for SharedResponse {}
-unsafe impl Sync for SharedResponse {}
-
-impl SharedResponse {
-    pub fn from_fd(fd: OwnedFd) -> anyhow::Result<Self> {
-        let ptr = unsafe {
-            // Safety: Ptr is null
-            mmap(
-                null_mut(),
-                size_of::<ResponseFrame>(),
-                ProtFlags::READ | ProtFlags::WRITE,
-                MapFlags::SHARED,
-                &fd,
-                0,
-            )?
-        };
-
-        let magic: *mut u32 = get_field_ptr!(magic, ResponseFrame, ptr);
-        let buffer: *mut [MaybeUninit<ResponseSlot>; RES_BUFFER_SIZE] =
-            get_field_ptr!(buffer, ResponseFrame, ptr);
-        let num_tx: *mut usize = get_field_ptr!(num_tx, ResponseFrame, ptr);
-        let tail_lock: *mut pthread_mutex_t = get_field_ptr!(tail_lock, ResponseFrame, ptr);
-        let tail_pos: *mut u64 = get_field_ptr!(tail_pos, ResponseFrame, ptr);
-        let tail_rx_cnt: *mut usize = get_field_ptr!(tail_rx_cnt, ResponseFrame, ptr);
-
-        Ok(Self {
-            magic,
-            buffer,
-            num_tx,
-            tail_lock,
-            tail_pos,
-            tail_rx_cnt,
-        })
-    }
 }
 
 pub trait CheckOk<R> {
@@ -262,13 +180,4 @@ pub unsafe fn sema_trywait(sem: *mut sem_t) -> c_int {
     } else {
         0
     }
-}
-
-mod macros {
-    macro_rules! get_field_ptr {
-        ($field:ident, $frame:ty, $ptr:expr) => {
-            unsafe { $ptr.byte_add(offset_of!($frame, $field)) }.cast()
-        };
-    }
-    pub(crate) use get_field_ptr;
 }

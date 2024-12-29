@@ -1,4 +1,4 @@
-use std::{os::fd::OwnedFd, ptr::null_mut};
+use std::{mem::MaybeUninit, os::fd::OwnedFd, ptr::null_mut};
 
 use anyhow::{bail, Context};
 use rustix::{
@@ -18,7 +18,10 @@ pub struct SharedMemory<T> {
 }
 
 impl<T: ShmSafe> SharedMemory<T> {
-    pub fn create(descriptor: impl Into<String>, value: T) -> anyhow::Result<Self> {
+    pub fn create(
+        descriptor: impl Into<String>,
+        init: impl FnOnce(&mut MaybeUninit<T>),
+    ) -> anyhow::Result<Self> {
         let descriptor = descriptor.into();
 
         let _ = shm::unlink(&descriptor);
@@ -35,8 +38,9 @@ impl<T: ShmSafe> SharedMemory<T> {
         unsafe {
             let magic = &raw mut (*ptr).magic;
             let contents = &raw mut (*ptr).contents;
+            *contents = MaybeUninit::uninit();
 
-            *contents = value;
+            init(&mut *contents);
             *magic = MAGIC_VALUE;
         }
 
@@ -47,7 +51,7 @@ impl<T: ShmSafe> SharedMemory<T> {
         })
     }
 
-    pub fn join(descriptor: impl Into<String>) -> anyhow::Result<Self> {
+    pub unsafe fn join(descriptor: impl Into<String>) -> anyhow::Result<Self> {
         let descriptor = descriptor.into();
         let fd = shm::open(&descriptor, OFlags::RDWR, Mode::RUSR | Mode::WUSR)
             .context("Opening shared memory failed")?;
@@ -69,8 +73,8 @@ impl<T: ShmSafe> SharedMemory<T> {
         })
     }
 
-    pub fn get(&self) -> *mut T {
-        unsafe { &raw mut (*self.memory).contents }
+    pub fn get(&self) -> &T {
+        unsafe { (*self.memory).contents.assume_init_ref() }
     }
 
     unsafe fn mmap(fd: OwnedFd) -> anyhow::Result<*mut SharedMemoryContents<T>> {
@@ -98,8 +102,11 @@ impl<T> Drop for SharedMemory<T> {
     }
 }
 
+unsafe impl<T: Send> Send for SharedMemory<T> {}
+unsafe impl<T: Sync> Sync for SharedMemory<T> {}
+
 #[repr(C)]
 pub struct SharedMemoryContents<T> {
     magic: u32,
-    contents: T,
+    contents: MaybeUninit<T>,
 }

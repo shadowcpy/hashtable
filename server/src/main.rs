@@ -6,16 +6,8 @@ use std::{
 };
 
 use clap::Parser;
-use libc::{
-    pthread_mutex_init, pthread_mutex_lock, pthread_mutex_unlock, pthread_mutexattr_init,
-    pthread_mutexattr_setpshared, pthread_rwlock_init, pthread_rwlock_unlock,
-    pthread_rwlock_wrlock, pthread_rwlockattr_init, pthread_rwlockattr_setpshared, sem_init,
-    sem_post, sem_wait,
-};
-use rustix::{
-    fs::{ftruncate, Mode},
-    shm::{self, OFlags},
-};
+
+use rustix::shm;
 
 pub mod cli;
 pub mod hash_table;
@@ -23,91 +15,57 @@ pub mod hash_table;
 use cli::Args;
 use hash_table::HashTable;
 use shared::{
-    primitives::Semaphore, CheckOk, KeyType, RequestFrame, RequestPayload, ResponseData,
-    ResponseFrame, ResponsePayload, SharedRequest, SharedResponse, MAGIC_VALUE, REQ_BUFFER_SIZE,
-    RES_BUFFER_SIZE, SHM_REQUEST, SHM_RESPONSE,
+    primitives::{Mutex, RwLock, Semaphore},
+    shm::SharedMemory,
+    HashtableMemory, KeyType, RequestFrame, RequestPayload, RequestQueue, ResponseData,
+    ResponseFrame, ResponsePayload, ResponseSlot, ResponseTail, DESCRIPTOR, REQ_BUFFER_SIZE,
+    RES_BUFFER_SIZE,
 };
+
+// TODO: Swap [MaybeUninit] for MaybeUninit[]
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let _ = shm::unlink(SHM_REQUEST);
-    let _ = shm::unlink(SHM_RESPONSE);
+    let mem = SharedMemory::create(DESCRIPTOR, |mem| {
+        let mem = mem.write(HashtableMemory {
+            request_frame: RequestFrame {
+                count: Semaphore::new(0, true),
+                space: Semaphore::new(REQ_BUFFER_SIZE as u32, true),
+                queue: Mutex::new(
+                    RequestQueue {
+                        write: 0,
+                        read: 0,
+                        buffer: const { [MaybeUninit::uninit(); REQ_BUFFER_SIZE] },
+                    },
+                    true,
+                ),
+            },
+            response_frame: ResponseFrame {
+                buffer: const { [const { MaybeUninit::uninit() }; RES_BUFFER_SIZE] },
+                num_tx: args.num_threads,
+                tail: Mutex::new(ResponseTail { pos: 0, rx_cnt: 0 }, true),
+            },
+        });
+
+        for (index, slot) in mem.response_frame.buffer.iter_mut().enumerate() {
+            slot.write(RwLock::new(
+                ResponseSlot {
+                    rem: AtomicUsize::new(0),
+                    pos: (index as u64).wrapping_sub(RES_BUFFER_SIZE as u64),
+                    val: MaybeUninit::uninit(),
+                },
+                true,
+            ));
+        }
+    })?;
 
     let hm: HashTable<KeyType, u32> = HashTable::new(args.size);
 
-    let req_fd = shm::open(
-        SHM_REQUEST,
-        OFlags::CREATE | OFlags::EXCL | OFlags::RDWR,
-        Mode::RUSR | Mode::WUSR,
-    )?;
-
-    let res_fd = shm::open(
-        SHM_RESPONSE,
-        OFlags::CREATE | OFlags::EXCL | OFlags::RDWR,
-        Mode::RUSR | Mode::WUSR,
-    )?;
-
-    ftruncate(&req_fd, size_of::<RequestFrame>() as u64)?;
-    ftruncate(&res_fd, size_of::<ResponseFrame>() as u64)?;
-
-    let is = SharedRequest::from_fd(req_fd)?;
-    let os = SharedResponse::from_fd(res_fd)?;
-
-    // Requests (input)
-    unsafe {
-        sem_init(is.count, 1, 0).r("init_count")?;
-        let space = Semaphore::new(REQ_BUFFER_SIZE as u32, true);
-        *is.space = space;
-        sem_init(is.lock, 1, 1).r("init_lock")?;
-    }
-
-    // Responses (output)
-    unsafe {
-        let mut attr = MaybeUninit::uninit();
-        pthread_mutexattr_init(attr.as_mut_ptr()).r("attr_init")?;
-        pthread_mutexattr_setpshared(attr.as_mut_ptr(), 1).r("attr_setpshared")?;
-
-        pthread_mutex_init(os.tail_lock, attr.as_ptr()).r("taillock_init")?;
-    }
-
-    unsafe {
-        (*is.buffer) = [MaybeUninit::uninit(); 1024];
-        (*is.read) = 0;
-        (*is.write) = 0;
-
-        (*os.num_tx) = args.num_threads;
-        (*os.tail_pos) = 0;
-        (*os.tail_rx_cnt) = 0;
-        (*os.buffer) = [const { MaybeUninit::uninit() }; RES_BUFFER_SIZE];
-
-        let mut index = 0;
-        for slot in (*os.buffer).iter_mut() {
-            let slot = slot.as_mut_ptr();
-            (*slot).pos = (index as u64).wrapping_sub(RES_BUFFER_SIZE as u64);
-            (*slot).rem = AtomicUsize::new(0);
-            (*slot).val = MaybeUninit::uninit();
-
-            let slot_lock = &raw mut (*slot).lock;
-
-            let mut attr = MaybeUninit::uninit();
-            pthread_rwlockattr_init(attr.as_mut_ptr()).r("attr_init")?;
-            pthread_rwlockattr_setpshared(attr.as_mut_ptr(), 1).r("attr_setpshared")?;
-
-            pthread_rwlock_init(slot_lock, attr.as_ptr()).r("slot_init")?;
-
-            index += 1;
-        }
-
-        (*is.magic) = MAGIC_VALUE;
-        (*os.magic) = MAGIC_VALUE;
-    }
-
-    println!("Initialized [{} -> {}]", SHM_REQUEST, SHM_RESPONSE);
+    println!("Initialized {}", DESCRIPTOR);
 
     ctrlc::set_handler(move || {
-        shm::unlink(SHM_REQUEST).unwrap();
-        shm::unlink(SHM_RESPONSE).unwrap();
+        shm::unlink(DESCRIPTOR).unwrap();
         exit(0);
     })?;
 
@@ -117,45 +75,43 @@ fn main() -> anyhow::Result<()> {
         for i in 0..args.num_threads {
             let _worker = format!("{i}");
             s.spawn(|| {
-                let mut is = is;
-                let mut os = os;
+                let mem = mem.get();
                 loop {
-                    if let Ok(request) = is_pop_item(&mut is) {
-                        let payload = match request.payload {
-                            RequestPayload::Insert(k, v) => {
-                                hm.insert(k, v);
-                                ResponsePayload::Inserted
+                    let request = is_pop_item(&mem.request_frame);
+                    let payload = match request.payload {
+                        RequestPayload::Insert(k, v) => {
+                            hm.insert(k, v);
+                            ResponsePayload::Inserted
+                        }
+                        RequestPayload::ReadBucket(k) => {
+                            let res = hm.read_bucket(k);
+                            let list: Vec<(KeyType, u32)> =
+                                res.iter().map(|n| (n.k, n.v)).collect();
+                            let len = list.len();
+                            if len > 32 {
+                                ResponsePayload::Overflow
+                            } else {
+                                let mut data = [(KeyType::new(), 0); 32];
+                                data[..len].copy_from_slice(&list);
+                                ResponsePayload::BucketContent { len, data }
                             }
-                            RequestPayload::ReadBucket(k) => {
-                                let res = hm.read_bucket(k);
-                                let list: Vec<(KeyType, u32)> =
-                                    res.iter().map(|n| (n.k, n.v)).collect();
-                                let len = list.len();
-                                if len > 32 {
-                                    ResponsePayload::Overflow
-                                } else {
-                                    let mut data = [(KeyType::new(), 0); 32];
-                                    data[..len].copy_from_slice(&list);
-                                    ResponsePayload::BucketContent { len, data }
-                                }
+                        }
+                        RequestPayload::Delete(k) => {
+                            if let Some(_v) = hm.remove(k) {
+                                ResponsePayload::Deleted
+                            } else {
+                                ResponsePayload::NotFound
                             }
-                            RequestPayload::Delete(k) => {
-                                if let Some(_v) = hm.remove(k) {
-                                    ResponsePayload::Deleted
-                                } else {
-                                    ResponsePayload::NotFound
-                                }
-                            }
-                        };
+                        }
+                    };
 
-                        let response = ResponseData {
-                            client_id: request.client_id,
-                            request_id: request.request_id,
-                            payload,
-                        };
+                    let response = ResponseData {
+                        client_id: request.client_id,
+                        request_id: request.request_id,
+                        payload,
+                    };
 
-                        while !os_push_item(response, &mut os).unwrap() {}
-                    }
+                    while !os_push_item(response, &mem.response_frame) {}
                 }
             });
         }
@@ -164,60 +120,50 @@ fn main() -> anyhow::Result<()> {
     })
 }
 
-fn is_pop_item(is: &mut SharedRequest) -> Result<shared::RequestData, anyhow::Error> {
-    unsafe {
-        sem_wait(is.count).r("wait_count")?;
-        sem_wait(is.lock).r("wait_lock")?;
+fn is_pop_item(is: &RequestFrame) -> shared::RequestData {
+    is.count.wait();
 
-        let item = &mut (*is.buffer)[(*is.read) & (REQ_BUFFER_SIZE - 1)];
+    let mut queue = is.queue.lock();
 
-        let data = item.assume_init();
-        (*is.read) = (*is.read).wrapping_add(1);
+    let id = queue.read & (REQ_BUFFER_SIZE - 1);
+    let item = &mut queue.buffer[id];
 
-        sem_post(is.lock).r("post_lock")?;
-        (*is.space).post();
+    let data = unsafe { item.assume_init() };
 
-        anyhow::Ok(data)
-    }
+    queue.read = queue.read.wrapping_add(1);
+
+    drop(queue);
+
+    is.space.post();
+    data
 }
 
-fn os_push_item(item: ResponseData, os: &mut SharedResponse) -> Result<bool, anyhow::Error> {
-    unsafe {
-        pthread_mutex_lock(os.tail_lock).r("wait_tail")?;
+fn os_push_item(item: ResponseData, os: &ResponseFrame) -> bool {
+    let mut tail = os.tail.lock();
 
-        if *os.tail_rx_cnt == 0 {
-            pthread_mutex_unlock(os.tail_lock).r("post_tail")?;
-            eprintln!("All clients left the channel, dropping msg: {item:?}");
-            return Ok(true);
-        }
-
-        let pos = *os.tail_pos;
-        let rem = *os.tail_rx_cnt;
-
-        let id = (pos & (RES_BUFFER_SIZE - 1) as u64) as usize;
-
-        let slot = (*os.buffer)[id].assume_init_mut();
-        let slot_lock = &raw mut slot.lock;
-
-        pthread_rwlock_wrlock(slot_lock).r("wait_slot")?;
-
-        if slot.rem.load(Ordering::Relaxed) > 0 {
-            pthread_rwlock_unlock(slot_lock).r("post_slot")?;
-            pthread_mutex_unlock(os.tail_lock).r("post_tail")?;
-            return Ok(false);
-        }
-
-        *os.tail_pos = (*os.tail_pos).wrapping_add(1);
-
-        slot.pos = pos;
-        slot.rem.store(rem, Ordering::Relaxed);
-
-        slot.val.write(item);
-
-        pthread_rwlock_unlock(slot_lock).r("post_slot")?;
-
-        pthread_mutex_unlock(os.tail_lock).r("post_tail")?;
-
-        anyhow::Ok(true)
+    if tail.rx_cnt == 0 {
+        eprintln!("All clients left the channel, dropping msg: {item:?}");
+        return true;
     }
+
+    let pos = tail.pos;
+    let rem = tail.rx_cnt;
+
+    let id = (pos & (RES_BUFFER_SIZE - 1) as u64) as usize;
+
+    let lock = unsafe { os.buffer[id].assume_init_ref() };
+    let mut slot = lock.write();
+
+    if slot.rem.load(Ordering::Relaxed) > 0 {
+        return false;
+    }
+
+    tail.pos = tail.pos.wrapping_add(1);
+
+    slot.pos = pos;
+    slot.rem.store(rem, Ordering::Relaxed);
+
+    slot.val.write(item);
+
+    true
 }
