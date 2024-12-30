@@ -15,13 +15,13 @@ use crate::{shm::ShmSafe, CheckOk};
 #[repr(C)]
 #[derive(Debug)]
 pub struct RwLock<T> {
-    inner: UnsafeCell<MaybeUninit<pthread_rwlock_t>>,
+    lock: UnsafeCell<MaybeUninit<pthread_rwlock_t>>,
     data: UnsafeCell<T>,
 }
 
 impl<T> RwLock<T> {
     pub fn new(data: T, inter_process: bool) -> Self {
-        let inner = UnsafeCell::new(MaybeUninit::uninit());
+        let lock = UnsafeCell::new(MaybeUninit::uninit());
         let mut attr = MaybeUninit::uninit();
         unsafe {
             pthread_rwlockattr_init(attr.as_mut_ptr())
@@ -34,20 +34,20 @@ impl<T> RwLock<T> {
                     .unwrap();
             }
 
-            pthread_rwlock_init((*inner.get()).as_mut_ptr(), attr.as_ptr())
+            pthread_rwlock_init((*lock.get()).as_mut_ptr(), attr.as_ptr())
                 .r("rwlock_init")
                 .unwrap();
         }
 
         Self {
-            inner,
+            lock,
             data: UnsafeCell::new(data),
         }
     }
 
     pub fn read(&self) -> RwLockReadGuard<T> {
         unsafe {
-            if pthread_rwlock_rdlock((*self.inner.get()).as_mut_ptr()) != 0 {
+            if pthread_rwlock_rdlock((*self.lock.get()).as_mut_ptr()) != 0 {
                 panic!("failed to wait for semaphore");
             }
             RwLockReadGuard {
@@ -59,7 +59,7 @@ impl<T> RwLock<T> {
 
     pub fn write(&self) -> RwLockWriteGuard<T> {
         unsafe {
-            if pthread_rwlock_wrlock((*self.inner.get()).as_mut_ptr()) != 0 {
+            if pthread_rwlock_wrlock((*self.lock.get()).as_mut_ptr()) != 0 {
                 panic!("failed to wait for semaphore");
             }
             RwLockWriteGuard {
@@ -85,7 +85,7 @@ impl<T> Deref for RwLockReadGuard<'_, T> {
 impl<T> Drop for RwLockReadGuard<'_, T> {
     fn drop(&mut self) {
         unsafe {
-            if pthread_rwlock_unlock((*self.lock.inner.get()).as_mut_ptr()) != 0 {
+            if pthread_rwlock_unlock((*self.lock.lock.get()).as_mut_ptr()) != 0 {
                 panic!("failed to unlock rwlock");
             }
         }
@@ -113,7 +113,7 @@ impl<T> DerefMut for RwLockWriteGuard<'_, T> {
 impl<T> Drop for RwLockWriteGuard<'_, T> {
     fn drop(&mut self) {
         unsafe {
-            if pthread_rwlock_unlock((*self.lock.inner.get()).as_mut_ptr()) != 0 {
+            if pthread_rwlock_unlock((*self.lock.lock.get()).as_mut_ptr()) != 0 {
                 panic!("failed to unlock rwlock");
             }
         }
@@ -125,7 +125,7 @@ unsafe impl<T> Sync for RwLock<T> {}
 
 impl<T> Drop for RwLock<T> {
     fn drop(&mut self) {
-        if unsafe { pthread_rwlock_destroy((*self.inner.get()).as_mut_ptr()) } != 0 {
+        if unsafe { pthread_rwlock_destroy((*self.lock.get()).as_mut_ptr()) } != 0 {
             panic!("failed to destroy rwlock");
         }
     }

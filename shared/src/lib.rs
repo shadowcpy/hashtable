@@ -18,8 +18,8 @@ pub mod sync;
 pub const MAGIC_VALUE: u32 = 0x77256810;
 pub const DESCRIPTOR: &str = "/hashtable";
 
-pub const REQ_BUFFER_SIZE: usize = 1024;
-pub const RES_BUFFER_SIZE: usize = 1024;
+pub const REQ_BUFFER_SIZE: usize = 2048;
+pub const RES_BUFFER_SIZE: usize = 2048;
 
 pub type KeyType = ArrayString<64>;
 
@@ -45,26 +45,22 @@ impl HashtableMemory {
 
             ptr::write(count, Semaphore::new(0, true));
             ptr::write(space, Semaphore::new(REQ_BUFFER_SIZE as u32, true));
-            ptr::write(
+            Mutex::init_at(
                 queue,
-                Mutex::init_unchecked(
-                    |queue_inner| {
-                        let queue_inner: *mut RequestQueue = queue_inner.as_mut_ptr();
+                |queue_inner| {
+                    let write = &raw mut (*queue_inner).write;
+                    let read = &raw mut (*queue_inner).read;
+                    let buffer = &raw mut (*queue_inner).buffer;
 
-                        let write = &raw mut (*queue_inner).write;
-                        let read = &raw mut (*queue_inner).read;
-                        let buffer = &raw mut (*queue_inner).buffer;
+                    ptr::write(write, 0);
+                    ptr::write(read, 0);
 
-                        ptr::write(write, 0);
-                        ptr::write(read, 0);
-
-                        // The relevant part: initialize the array on the heap
-                        // and move it to shared memory
-                        let init_buffer = HeapArrayInit::from_fn(|_| MaybeUninit::uninit());
-                        init_buffer.move_to(buffer);
-                    },
-                    true,
-                ),
+                    // The relevant part: initialize the array on the heap
+                    // and move it to shared memory
+                    let init_buffer = HeapArrayInit::from_fn(|_| MaybeUninit::uninit());
+                    init_buffer.move_to(buffer);
+                },
+                true,
             );
         }
 

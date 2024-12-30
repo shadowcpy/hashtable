@@ -43,7 +43,6 @@ impl<T: ShmSafe> SharedMemory<T> {
         unsafe {
             let magic = &raw mut (*ptr).magic;
             let contents = &raw mut (*ptr).contents;
-            *contents = MaybeUninit::uninit();
 
             init(&mut *contents);
 
