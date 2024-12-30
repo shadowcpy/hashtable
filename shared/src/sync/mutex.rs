@@ -15,7 +15,7 @@ use crate::{shm::ShmSafe, CheckOk};
 #[derive(Debug)]
 pub struct Mutex<T> {
     lock: UnsafeCell<MaybeUninit<pthread_mutex_t>>,
-    data: UnsafeCell<MaybeUninit<T>>,
+    data: UnsafeCell<T>,
 }
 
 impl<T> Mutex<T> {
@@ -38,7 +38,7 @@ impl<T> Mutex<T> {
 
     pub fn new(value: T, inter_process: bool) -> Self {
         let lock = UnsafeCell::new(MaybeUninit::uninit());
-        let data = UnsafeCell::new(MaybeUninit::new(value));
+        let data = UnsafeCell::new(value);
         unsafe { Self::init_lock((*lock.get()).as_mut_ptr(), inter_process) };
         Self { lock, data }
     }
@@ -59,7 +59,7 @@ impl<T> Mutex<T> {
             }
             MutexGuard {
                 lock: self,
-                data: (*self.data.get()).assume_init_mut(),
+                data: &mut *self.data.get(),
             }
         }
     }
