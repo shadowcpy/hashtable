@@ -8,3 +8,6 @@ anyhow = "1.0.94"
 arrayvec = "0.7.6"
 libc = "0.2.168"
 rustix = { version = "0.38.42", features = ["mm", "shm"] }
+
+[lints.clippy]
+large-stack-frames = "deny"

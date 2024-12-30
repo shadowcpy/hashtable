@@ -9,17 +9,10 @@
   <component name="ChangeListManager">
     <list default="true" id="11ebbd7b-2dbe-4f7b-baae-602091c365fa" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/AloneMultiThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/AloneMultiThread.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/AloneSingleThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/AloneSingleThread.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/ManyClientsMT.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/ManyClientsMT.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/ManyClientsST.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/ManyClientsST.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/SCManyThreads.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/SCManyThreads.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/TwoMultiThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/TwoMultiThread.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/analysis/benchmarks/TwoSingleThread.csv" beforeDir="false" afterPath="$PROJECT_DIR$/analysis/benchmarks/TwoSingleThread.csv" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/client/src/client.rs" beforeDir="false" afterPath="$PROJECT_DIR$/client/src/client.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/client/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/server/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/server/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/server/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/server/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/shared/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/shared/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/shared/src/sync/mutex.rs" beforeDir="false" afterPath="$PROJECT_DIR$/shared/src/sync/mutex.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shared/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/shared/Cargo.toml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -42,26 +35,26 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Cargo.Run client.executor": "Debug",
-    "Cargo.Run server.executor": "Debug",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.rust.reset.selective.auto.import": "true",
-    "git-widget-placeholder": "main",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
-    "org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon": "",
-    "org.rust.first.attach.projects": "true",
-    "settings.editor.selected.configurable": "language.rust.cargo.check",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Cargo.Run client.executor&quot;: &quot;Debug&quot;,
+    &quot;Cargo.Run server.executor&quot;: &quot;Debug&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.rust.reset.selective.auto.import&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
+    &quot;org.rust.cargo.project.model.impl.CargoExternalSystemProjectAware.subscribe.first.balloon&quot;: &quot;&quot;,
+    &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;language.rust.cargo.check&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RsExternalLinterProjectSettings">
     <option name="runOnTheFly" value="true" />
   </component>

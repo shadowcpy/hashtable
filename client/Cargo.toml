@@ -12,3 +12,6 @@ libc = "0.2.168"
 rand = "0.8.5"
 rustix = { version = "0.38.42", features = ["mm", "shm"] }
 shared = { path = "../shared" }
+
+[lints.clippy]
+large-stack-frames = "deny"
