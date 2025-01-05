@@ -1,5 +1,6 @@
 use std::{
     collections::LinkedList,
+    fmt::Debug,
     hash::{BuildHasher, Hash, Hasher, RandomState},
     iter::repeat_with,
     sync::{RwLock, RwLockReadGuard},
@@ -75,6 +76,25 @@ where
 
     fn get_index(&self, hash: u64) -> usize {
         (hash % self.content.len() as u64) as usize
+    }
+}
+
+impl<K, V> Debug for HashTable<K, V, RandomState>
+where
+    K: Hash + Eq + Debug,
+    V: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "HashTable {{")?;
+        for (id, bucket) in self.content.iter().enumerate() {
+            let bucket = bucket.read().unwrap();
+            if bucket.is_empty() {
+                continue;
+            }
+            writeln!(f, "  Bucket {id}: {:?}", &*bucket)?;
+        }
+        writeln!(f, "}}")?;
+        Ok(())
     }
 }
 

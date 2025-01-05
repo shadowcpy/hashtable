@@ -34,25 +34,26 @@ The server accepts the following arguments:
 - `-s <usize>`: Number of Buckets in the HashTable
 - `-n <usize>`: Number of worker threads to spawn
 
-On startup, it creates two shared memory regions, initializes all semaphores and values,
-and then writes the value `MAGIC = 0x77256810` to the first field in each memory region to signal readyness.
+On startup, it creates a shared memory region, initializes all semaphores and values,
+and then writes the value `MAGIC = 0x77256810` to the first field of the region to signal readyness.
 
-It then listens on the `/hashtable_req` by blocking on a semaphore until a client sends a message.
+Each worker thread then listens on the request queue by blocking on a semaphore until a client sends a message.
 
-Incoming messages are forwarded to the workers internally via a mpmc channel (`crossbeam_channel`)
+Once a request is taken from the queue, the worker executes the contained operation on the HashTable.
+Afterwards, the result of the operation is placed on the response queue.
 
-The messages are claimed by worker threads, which execute the contained operation on the HashTable.
-Afterwards, the result of the operation is forwarded via a second mpmc channel to the sender thread.
+After all clients have seen the response, and checked whether it is addressed to them,
+the last client reading the response will free up the slot again for workers to use.
 
-The sender thread then sends the responses back to **all** clients over `/hashtable_res`
 
 ### Client
 The client accepts the following arguments:
 - `ol: usize (positional)`: Number of outer loop iterations (runs), provide 0 for infinite
 - `il: usize (positional)`: Number of values to be processed each run
 - `--seed: u32 (optional)`: Random start seed for keys
+- `--debug-print: bool (flag)`: Request the server to print its hash table, client will ignore all other args
 
-It then maps the respective shared memory regions, checks for the `MAGIC` value and then executes:
+It then maps the respective shared memory region, checks for the `MAGIC` value and then executes:
 - Generate `client_id` (random `u32`)
 - Generate `seed` (random `u32`) if not specified by the user
 - For `j in 0..ol`
@@ -73,23 +74,42 @@ which is included with the response again.
 Since every client gets every message, clients discard messages that are not containing their `client_id`
 
 ## Architecture
-`1` server and `n` clients communicate over two shared memory buffers, requests from client to server via `/hashtable_req`, responses via `/hashtable_res`.
+`k` server threads and `n` clients communicate over two queues stored in a shared memory region.
 
-**The composition of the shared memory regions can be seen in `shared/src/lib.rs`**
-
-![Architecture](analysis/architecture_v1.svg)
+**The composition of the shared memory region can be seen in `shared/src/lib.rs`**
 
 Each client can request the server to execute the following commands:
 - Insert an item (Key: Stack-Only String (size max 64 bytes), Value: u32)
 - Delete an item
 - Dump the contents of a bucket (by specifying the bucket number or an item which is contained in it)
   - Currently only works up to 32 elements per bucket, due to fixed sizing of `ftruncate`
+- Print the contents of the Hash Table for debugging
 
-The accesses are synchronized via POSIX semaphores, with different mechanisms:
-- The requests on `/hashtable_req` are implemented via two mutexes `busy` and `waker`
-  - One client (writer) at a time can lock `busy`, write a request into the buffer and notify the server via `waker`
-  - The server reads only after locking `waker`, and wakes up the next client with `busy` when it has finished reading
-- The responses on `hashtable_res` are synchronized via a reusable *two-phase barrier* with wakers, achieving lockstep synchronization similar to a SPMC channel with a capacity of 1
+The accesses are synchronized via atomics, pthread mutexes and semaphores, with different mechanisms:
+- Request Queue (standard stealing MPMC queue):
+  - the client waits until an item is in the queue (semaphore `count`), locks the queue with a mutex
+  and takes the item at index `read` out of it (and incrementing the value).
+  Then it posts the semaphore `space`, signalling that the spot has been freed
+  - the worker thread waits until there is `space` in the queue,
+  locks the queue and places its response at the `write` position (and incrementing the value).
+  Then it posts to `count` to wake up a reader again.
+- Response Queue (MPMC broadcast queue):
+  - the queue contains a global tail, protected by a mutex, for the writers, and slots (protected by rwlocks) in a ring buffer
+  - worker write:
+    - worker waits on the `space` semaphore until a slot is free, locks the tail and writes the following information to the slot at the current write pointer (acquiring a write lock):
+      - the data
+      - number of clients that have to read the message (= currently active clients integer)
+      - a copy of their write index pointer, for client wraparound protection
+    - the worker then increments the write pointer and unlocks the tail
+  - each client has its own next read pointer in local memory
+  - client join procedure: lock the tail, increment the current active clients integer, copy the current write pointer into its next read pointer, unlock the tail.
+  - client read: acquire read lock at its pointer position slot and compare the read next pointer with the write index copy inside the slot to prevent wraparound.
+    - if the pointers match (=no wraparound) it increments its read pointer and
+    decrements the atomic counter of the slot, representing how many clients still need to see the message
+    - if the client does not succeed, because the queue has no new messages it has not read yet, it will backoff for a short time, and retry
+    - the last client to see a message (counter for remaining clients == 1), will mark the slot in the queue as free again, and notify one producer with the `space` semaphore
+  - client leave procedure: lock the tail, decrement the current active clients integer, unlock the tail.
+
 
 ## Performance Evaluation
 Please refer to the [Analysis](analysis/ANALYSIS.md)

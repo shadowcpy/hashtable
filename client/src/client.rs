@@ -103,6 +103,14 @@ impl HashtableClient {
         os.count.post();
     }
 
+    pub fn recv(&mut self) -> anyhow::Result<ResponseData> {
+        let val = self.responses.recv();
+        match val {
+            Ok(t) => Ok(t),
+            Err(_) => bail!("recv error"),
+        }
+    }
+
     pub fn try_recv(&mut self) -> anyhow::Result<Option<ResponseData>> {
         let val = self.responses.try_recv();
         match val {

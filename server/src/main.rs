@@ -1,5 +1,6 @@
 use std::{process::exit, sync::atomic::Ordering, thread};
 
+use arrayvec::ArrayString;
 use clap::Parser;
 
 use rustix::shm;
@@ -10,8 +11,8 @@ pub mod hash_table;
 use cli::Args;
 use hash_table::HashTable;
 use shared::{
-    shm::SharedMemory, HashtableMemory, KeyType, RequestFrame, RequestPayload, ResponseData,
-    ResponseFrame, ResponsePayload, DESCRIPTOR, REQ_BUFFER_SIZE, RES_BUFFER_SIZE,
+    shm::SharedMemory, HashtableMemory, KeyType, RequestData, RequestFrame, RequestPayload,
+    ResponseData, ResponseFrame, ResponsePayload, DESCRIPTOR, REQ_BUFFER_SIZE, RES_BUFFER_SIZE,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -39,39 +40,7 @@ fn main() -> anyhow::Result<()> {
                 let mem = mem.get();
                 loop {
                     let request = is_pop_item(&mem.request_frame);
-                    let payload = match request.payload {
-                        RequestPayload::Insert(k, v) => {
-                            hm.insert(k, v);
-                            ResponsePayload::Inserted
-                        }
-                        RequestPayload::ReadBucket(k) => {
-                            let res = hm.read_bucket(k);
-                            let list: Vec<(KeyType, u32)> =
-                                res.iter().map(|n| (n.k, n.v)).collect();
-                            let len = list.len();
-                            if len > 32 {
-                                ResponsePayload::Overflow
-                            } else {
-                                let mut data = [(KeyType::new(), 0); 32];
-                                data[..len].copy_from_slice(&list);
-                                ResponsePayload::BucketContent { len, data }
-                            }
-                        }
-                        RequestPayload::Delete(k) => {
-                            if let Some(_v) = hm.remove(k) {
-                                ResponsePayload::Deleted
-                            } else {
-                                ResponsePayload::NotFound
-                            }
-                        }
-                    };
-
-                    let response = ResponseData {
-                        client_id: request.client_id,
-                        request_id: request.request_id,
-                        payload,
-                    };
-
+                    let response = process_request(request, &hm);
                     os_push_item(response, &mem.response_frame);
                 }
             });
@@ -81,7 +50,46 @@ fn main() -> anyhow::Result<()> {
     })
 }
 
-fn is_pop_item(is: &RequestFrame) -> shared::RequestData {
+fn process_request(request: RequestData, hm: &HashTable<ArrayString<64>, u32>) -> ResponseData {
+    let payload = match request.payload {
+        RequestPayload::Insert(k, v) => {
+            hm.insert(k, v);
+            ResponsePayload::Inserted
+        }
+        RequestPayload::ReadBucket(k) => {
+            let res = hm.read_bucket(k);
+            let list: Vec<(KeyType, u32)> = res.iter().map(|n| (n.k, n.v)).collect();
+            let len = list.len();
+            if len > 32 {
+                ResponsePayload::Overflow
+            } else {
+                let mut data = [(KeyType::new(), 0); 32];
+                data[..len].copy_from_slice(&list);
+                ResponsePayload::BucketContent { len, data }
+            }
+        }
+        RequestPayload::Delete(k) => {
+            if let Some(_v) = hm.remove(k) {
+                ResponsePayload::Deleted
+            } else {
+                ResponsePayload::NotFound
+            }
+        }
+        RequestPayload::PrintHashmap => {
+            println!("{:?}", hm);
+            ResponsePayload::Printed
+        }
+    };
+
+    let response = ResponseData {
+        client_id: request.client_id,
+        request_id: request.request_id,
+        payload,
+    };
+    response
+}
+
+fn is_pop_item(is: &RequestFrame) -> RequestData {
     is.count.wait();
 
     let mut queue = is.queue.lock();

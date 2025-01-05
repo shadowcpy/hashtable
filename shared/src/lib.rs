@@ -122,6 +122,7 @@ pub struct RequestData {
 pub enum RequestPayload {
     Insert(KeyType, u32),
     ReadBucket(KeyType),
+    PrintHashmap,
     Delete(KeyType),
 }
 
@@ -168,6 +169,7 @@ pub enum ResponsePayload {
     },
     Deleted,
     NotFound,
+    Printed,
     Overflow,
 }
 

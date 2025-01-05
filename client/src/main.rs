@@ -35,6 +35,11 @@ fn main() -> anyhow::Result<()> {
 
     unsafe {
         let mut client = HashtableClient::init()?;
+        if args.debug_print {
+            client.send(RequestPayload::PrintHashmap, 0);
+            let _ = client.recv();
+            return Ok(());
+        }
         benchmark(&args, &mut client, exit_signal)?;
     }
 

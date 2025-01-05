@@ -16,4 +16,10 @@ pub struct Args {
     /// Start Seed for the random keys
     #[arg(long)]
     pub seed: Option<u32>,
+
+    /// Print HashTable on the server side
+    ///
+    /// When this flag is set, all other arguments are ignored
+    #[arg(long)]
+    pub debug_print: bool,
 }

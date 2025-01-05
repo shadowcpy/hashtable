@@ -1,111 +1,72 @@
-# Analysis of performance
+# Analysis of performance - Version with Ring Buffer Optimizations
 
-## Expectation
-The expectation for a multi-threaded system like this would be that the
-activity of multiple clients can be scheduled onto multiple server threads,
-and therefore all clients experiencing only minor performance degradation (overhead),
-as long as the number of clients does not exceed the number of worker threads
+After identification of performance bottlenecks in the internal dispatching and communication between the server and the clients,
+the architecture was reworked:
 
-## Benchmarks
-When running the benchmarks with `make bench`, one can see an output similar to the following:
+- Requests are submitted to a ring buffer in a MPMC fashion, each worker thread can independently consume from the queue
+- Responses are submitted to a MPMC broadcast queue implemented over a second ring buffer,
+items get deleted from the queue once all clients have seen them, all worker threads can place items on the queue
+- The internal dispatching queue (crossbeam) was removed
 
-```
---- Summary ---
-
-alone at 16 threads is slower than alone at 1 thread: 0.89x
-alone at 32 threads is slower than alone at 1 thread: 0.83x
-
-alone at 1 thread is faster than one visitor at 1 thread: 1.64x
-alone at 1 thread is faster than 16 visitors at 1 thread: 52.09x
-
-alone at 16 threads is faster than one visitor at 16 threads: 1.62x
-alone at 16 threads is faster than 16 visitors at 16 threads: 51.28x
-```
-
-This suggests that:
-- The overhead for dispatching requests to the worker threads is significant (line 2)
-- The payoff is nearly non-existant, as soon as multiple threads join the session, all clients experience
-severe performance degradation (line 4) and multithreading does not help (line 6)
-
-## Perf Evaluation
-Looking at the server perf metrics obtained via `make perf` in HotSpot, the bottlenecks become clear:
-(from `perf_server_4c_2thr_10000hms`)
-
-![Perf Flame Graph](flamegraph_full.png)
-
-More than 50% of CPU cycles are spent on communication with the clients over shared memory,
-most of it on synchronization or waiting for progress (__new_sem_wait / __new_sem_post)
-
-Of the remaining 50%, almost all of the cycles are spent on internal dispatching of requests
-from the shared memory to the worker threads, and back.
-
-As can be seen in this flamegraph, only ~0.7% of cycles are actually spent on processing requests
-to the Hash Table (including waiting for locks on the buckets)
-
-![HashTable Flame Graph](flamegraph_hashtable.png)
-
-These results strongly suggest that the bottleneck causing the performance degradation is located
-in the communication architecture of the system
-
-## The Architecture Bottleneck
-The system architecture can be described with the following chart:
-
-![System Architecture](architecture_v1.svg)
-
-The performance issues originate in the contention on the shared memory buffers,
-which have to be synchronized between the server and all clients
-
-The requests channel is structured in a simple fashion, with two locks passed between the server and one of the clients
-
-Performance-wise, this leads to a bottleneck where only one client can write at a time, and everyone has to wait for the
-server to finish reading, effectively serializing the communication
-
-
-The response channel is synchronized with a two-phase barrier, which involves multiple mutexes and semaphores
-
-In my first attempt to synchronization of the channel, it was possible for all threads to read at the same time
-after the server finished writing a message.
-Unfortunately, it was not possible for me to achieve correctness in a reasonable time frame, so the current approach allows all threads
-to only read after each other
-
-## Future Improvement Possibilities
-
-To fix the issues imposed by the current architecture, the system could be restructured to look like this:
-
-![Proposed Architecture](architecture_vNext.svg)
-
-
-Here, each client would directly share memory with one worker, eliminating the bottleneck and removing
-the overhead for internal message passing
-
-All other mechanisms could be left the same, as synchronization is still required, when `n > k`
-(more than one client per worker)
-
-As an optimization, when only one client is connected to a workers' output memory, we could switch to a
-spsc (waker / busy locks) channel, similar to the current input channel synchronization.
-
-For reducing the number of shared-memory descriptors that are used, it is also possible to chunk
-the memory region, instead of creating multiple regions.
-
-At the start of the new shared memory area, there would need to be a metadata table informing the clients,
-how many worker threads are active:
+This improved performance significantly across the board, most notably for scenarios with multiple clients:
 
 ```
----start region---
-u32 MAGIC
-u32 num_workers
-** (block1) **
-[input-related objects]
-[output-related objects]
-** (block2) **
-[input-related objects]
-[output-related objects]
-...
-** (blockn) **
-[input-related objects]
-[output-related objects]
----end region---
+[before]
+-- Benchmark ManyClientsMT (server -s 10000 -n 16) (16 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):      2.638 s ±  0.056 s    [User: 0.095 s, System: 0.246 s]
+  Range (min … max):    2.589 s …  2.776 s    10 runs
+
+[after]
+-- Benchmark ManyClientsMT (server -s 10000 -n 16) (16 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):     160.6 ms ±  23.2 ms    [User: 135.7 ms, System: 10.5 ms]
+  Range (min … max):   123.6 ms … 197.4 ms    19 runs
 ```
 
-Access to the `num_workers` variable does not require synchronization,
-as it will never be written again after initialization
+Suprisingly, multithreaded executions of the server still seem to have relatively little gain over singlethreaded runs:
+```
+-- Benchmark ManyClientsST (server -s 10000 -n 1) (16 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):     183.7 ms ±  40.8 ms    [User: 172.6 ms, System: 4.1 ms]
+  Range (min … max):   115.4 ms … 253.4 ms    14 runs
+
+-- Benchmark ManyClientsMT (server -s 10000 -n 16) (16 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):     160.6 ms ±  23.2 ms    [User: 135.7 ms, System: 10.5 ms]
+  Range (min … max):   123.6 ms … 197.4 ms    19 runs
+
+
+16 visitors at 16 threads is faster than 16 visitors at 1 thread: 1.14x
+```
+
+To evaluate this further, more perf data was collected from after the optimization:
+![Full Flamegraph](flamegraph_full_postop.png)
+
+It can be seen that the communication efforts to and from the clients still consume the majority of cycles (~65% combined for `is_pop_item` + `os_push_item`))
+, but the share consumed by HashTable operations has risen to over 20% (from ~0.7% before):
+
+![HashTable Flamegraph](flamegraph_hashtable_postop.png)
+
+There is also a disparity between the receive queue and the send queue, sending responses consumes much more cycles than receiving requests at higher client counts.
+
+Looking at the procedure for writing and reading from the response queue, the reasons for this become evident:
+- As all consumers have to read a value before it can be freed
+(and consumers block each other at least partly when acquiring the slot rwlock),
+producers have to wait longer and longer for the slot to become unused again with more and more clients
+- Response Data Payloads (especially read bucket responses) contain much more data than the requests.
+This increases the time it takes to copy a response into the shared memory region,
+blocking other server threads in the meantime due to the tail lock
+
+The performance in this area could further be improved by introducing sharding
+(each server thread gets their own request and response queue, clients always join the least contended shard)
+
+Other approaches, like an unbounded queue with linked lists, or creating dynamic queues per-client
+are infeasible to realize in POSIX shared memory regions, as they are fixed-size memory blocks.
+
+To achieve near 1:1 scaling (16x clients ≈ 16x throughput),
+a solution built on top of network protocols (udp, tcp) or unix domain sockets could be used instead of shared memory,
+since the transmitted data size is relatively small and the operation frequency is high.
+
+Generally it seems that operating on top of a shared memory region, with the necessary synchronization in place,
+profits from a fixed, smaller number of communicating peers, which send large amounts of data at moderate operation frequency.

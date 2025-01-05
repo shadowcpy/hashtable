@@ -1,0 +1,47 @@
+-- Benchmark AloneSingleThread (server -s 10000 -n 1) (0 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):      18.9 ms ±   0.3 ms    [User: 19.7 ms, System: 1.4 ms]
+  Range (min … max):    17.8 ms …  19.8 ms    155 runs
+
+-- Benchmark TwoSingleThread (server -s 10000 -n 1) (1 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):      17.4 ms ±   0.9 ms    [User: 18.7 ms, System: 1.6 ms]
+  Range (min … max):    14.0 ms …  21.0 ms    185 runs
+
+-- Benchmark AloneMultiThread (server -s 10000 -n 16) (0 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):      20.1 ms ±   0.9 ms    [User: 19.7 ms, System: 3.2 ms]
+  Range (min … max):    18.4 ms …  22.8 ms    146 runs
+
+-- Benchmark TwoMultiThread (server -s 10000 -n 16) (1 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):      20.1 ms ±   0.7 ms    [User: 17.3 ms, System: 5.9 ms]
+  Range (min … max):    18.9 ms …  24.1 ms    144 runs
+
+-- Benchmark ManyClientsST (server -s 10000 -n 1) (16 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):     183.7 ms ±  40.8 ms    [User: 172.6 ms, System: 4.1 ms]
+  Range (min … max):   115.4 ms … 253.4 ms    14 runs
+
+-- Benchmark ManyClientsMT (server -s 10000 -n 16) (16 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):     160.6 ms ±  23.2 ms    [User: 135.7 ms, System: 10.5 ms]
+  Range (min … max):   123.6 ms … 197.4 ms    19 runs
+
+-- Benchmark SCManyThreads (server -s 10000 -n 32) (0 bg clients, iLoop iterations 10) --
+Benchmark 1: target/benchmark/client 100 10
+  Time (mean ± σ):      19.2 ms ±   0.5 ms    [User: 19.3 ms, System: 2.4 ms]
+  Range (min … max):    18.4 ms …  20.7 ms    156 runs
+
+--- Summary ---
+
+alone at 16 threads is slower than alone at 1 thread: 0.94x
+alone at 32 threads is slower than alone at 1 thread: 0.99x
+
+alone at 1 thread is slower than one visitor at 1 thread: 0.92x
+alone at 1 thread is faster than 16 visitors at 1 thread: 9.71x
+
+alone at 16 threads is faster than one visitor at 16 threads: 1.00x
+alone at 16 threads is faster than 16 visitors at 16 threads: 8.00x
+
+16 visitors at 16 threads is faster than 16 visitors at 1 thread: 1.14x
