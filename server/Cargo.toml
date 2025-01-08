@@ -5,11 +5,9 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.94"
-arrayvec = "0.7.6"
 clap = { version = "4.5.23", features = ["derive"] }
 ctrlc = "3.4.5"
-libc = "0.2.168"
-rustix = { version = "0.38.42", features = ["mm", "shm"] }
+rustix = { version = "0.38.42", features = ["shm"] }
 shared = { path = "../shared" }
 
 [lints.clippy]

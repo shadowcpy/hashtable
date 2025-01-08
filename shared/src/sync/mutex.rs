@@ -11,6 +11,8 @@ use libc::{
 
 use crate::{shm::ShmSafe, CheckOk};
 
+use super::INTER_PROCESS;
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct Mutex<T> {
@@ -19,36 +21,34 @@ pub struct Mutex<T> {
 }
 
 impl<T> Mutex<T> {
-    unsafe fn init_lock(lock: *mut pthread_mutex_t, inter_process: bool) {
+    unsafe fn init_lock(lock: *mut pthread_mutex_t) {
         let mut attr = MaybeUninit::uninit();
         pthread_mutexattr_init(attr.as_mut_ptr())
             .r("attr_init")
             .unwrap();
 
-        if inter_process {
-            pthread_mutexattr_setpshared(attr.as_mut_ptr(), 1)
-                .r("attr_setpshared")
-                .unwrap();
-        }
+        pthread_mutexattr_setpshared(attr.as_mut_ptr(), INTER_PROCESS)
+            .r("attr_setpshared")
+            .unwrap();
 
         pthread_mutex_init(lock, attr.as_ptr())
             .r("mutex_init")
             .unwrap();
     }
 
-    pub fn new(value: T, inter_process: bool) -> Self {
+    pub fn new(value: T) -> Self {
         let lock = UnsafeCell::new(MaybeUninit::uninit());
         let data = UnsafeCell::new(value);
-        unsafe { Self::init_lock((*lock.get()).as_mut_ptr(), inter_process) };
+        unsafe { Self::init_lock((*lock.get()).as_mut_ptr()) };
         Self { lock, data }
     }
 
-    pub unsafe fn init_at(target: *mut Self, init_data: impl FnOnce(*mut T), inter_process: bool) {
+    pub unsafe fn init_at(target: *mut Self, init_data: impl FnOnce(*mut T)) {
         let lock = &raw mut (*target).lock;
         let data = &raw mut (*target).data;
         let lock: *mut pthread_mutex_t = lock.cast();
         let data: *mut T = data.cast();
-        unsafe { Self::init_lock(lock, inter_process) };
+        unsafe { Self::init_lock(lock) };
         init_data(data);
     }
 

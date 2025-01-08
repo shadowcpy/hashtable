@@ -4,6 +4,8 @@ use libc::{sem_destroy, sem_init, sem_post, sem_t, sem_wait};
 
 use crate::shm::ShmSafe;
 
+use super::INTER_PROCESS;
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct Semaphore {
@@ -11,10 +13,9 @@ pub struct Semaphore {
 }
 
 impl Semaphore {
-    pub fn new(value: u32, inter_process: bool) -> Self {
-        let inter_process = if inter_process { 1 } else { 0 };
+    pub fn new(value: u32) -> Self {
         let inner = UnsafeCell::new(MaybeUninit::uninit());
-        if unsafe { sem_init((*inner.get()).as_mut_ptr(), inter_process, value) } != 0 {
+        if unsafe { sem_init((*inner.get()).as_mut_ptr(), INTER_PROCESS, value) } != 0 {
             panic!("failed to initialize semaphore");
         }
         Self { inner }

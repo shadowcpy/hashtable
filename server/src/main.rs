@@ -1,9 +1,7 @@
 use std::{process::exit, sync::atomic::Ordering, thread};
 
-use arrayvec::ArrayString;
 use clap::Parser;
-
-use rustix::shm;
+use rustix::shm::unlink;
 
 pub mod cli;
 pub mod hash_table;
@@ -12,7 +10,8 @@ use cli::Args;
 use hash_table::HashTable;
 use shared::{
     shm::SharedMemory, HashtableMemory, KeyType, RequestData, RequestFrame, RequestPayload,
-    ResponseData, ResponseFrame, ResponsePayload, DESCRIPTOR, REQ_BUFFER_SIZE, RES_BUFFER_SIZE,
+    ResponseData, ResponseFrame, ResponsePayload, ValueType, DESCRIPTOR, REQ_BUFFER_SIZE,
+    RES_BUFFER_SIZE,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -22,12 +21,13 @@ fn main() -> anyhow::Result<()> {
         HashtableMemory::init_in_shm(mem.as_mut_ptr(), args.num_threads);
     })?;
 
-    let hm: HashTable<KeyType, u32> = HashTable::new(args.size);
+    let hm: HashTable<KeyType, ValueType> = HashTable::new(args.size);
 
     println!("Initialized {}", DESCRIPTOR);
 
     ctrlc::set_handler(move || {
-        shm::unlink(DESCRIPTOR).unwrap();
+        println!("Terminating");
+        unlink(DESCRIPTOR).unwrap();
         exit(0);
     })?;
 
@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
     })
 }
 
-fn process_request(request: RequestData, hm: &HashTable<ArrayString<64>, u32>) -> ResponseData {
+fn process_request(request: RequestData, hm: &HashTable<KeyType, ValueType>) -> ResponseData {
     let payload = match request.payload {
         RequestPayload::Insert(k, v) => {
             hm.insert(k, v);

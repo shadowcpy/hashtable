@@ -7,7 +7,6 @@ use std::{
 };
 
 use anyhow::bail;
-use arrayvec::ArrayString;
 use clap::Parser;
 use client::HashtableClient;
 use rand::Rng;
@@ -16,7 +15,7 @@ pub mod cli;
 pub mod client;
 
 use cli::Args;
-use shared::{RequestPayload, ResponsePayload};
+use shared::{KeyType, RequestPayload, ResponsePayload};
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -33,13 +32,12 @@ fn main() -> anyhow::Result<()> {
         }
     })?;
 
-    unsafe {
-        let mut client = HashtableClient::init()?;
-        if args.debug_print {
-            client.send(RequestPayload::PrintHashmap, 0);
-            let _ = client.recv();
-            return Ok(());
-        }
+    let mut client = unsafe { HashtableClient::init()? };
+
+    if args.debug_print {
+        client.send(RequestPayload::PrintHashmap, 0);
+        let _ = client.recv();
+    } else {
         benchmark(&args, &mut client, exit_signal)?;
     }
 
@@ -78,7 +76,7 @@ fn benchmark(
     // Create Hashmap for verifying all requests later
     let mut rmap = HashMap::new();
     // Buffer to hold the values we are going to store
-    let mut buffer = vec![ArrayString::<64>::new(); inner_iter];
+    let mut buffer = vec![KeyType::new(); inner_iter];
 
     let seed: u32 = args.seed.unwrap_or_else(|| rng.gen());
     println!("Seed: {seed}");
@@ -92,7 +90,7 @@ fn benchmark(
         for i in 0..inner_iter {
             let suffix: u32 = rng.gen();
             let name = format!("ht{seed}{suffix}");
-            buffer[i] = ArrayString::new();
+            buffer[i] = KeyType::new();
             buffer[i].push_str(&name);
         }
 

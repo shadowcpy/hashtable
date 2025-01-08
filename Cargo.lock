@@ -132,12 +132,9 @@ name = "client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrayvec",
  "clap",
  "ctrlc",
- "libc",
  "rand",
- "rustix",
  "shared",
 ]
 
@@ -356,10 +353,8 @@ name = "server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrayvec",
  "clap",
  "ctrlc",
- "libc",
  "rustix",
  "shared",
 ]

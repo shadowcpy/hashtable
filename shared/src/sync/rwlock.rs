@@ -12,6 +12,8 @@ use libc::{
 
 use crate::{shm::ShmSafe, CheckOk};
 
+use super::INTER_PROCESS;
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct RwLock<T> {
@@ -20,7 +22,7 @@ pub struct RwLock<T> {
 }
 
 impl<T> RwLock<T> {
-    pub fn new(data: T, inter_process: bool) -> Self {
+    pub fn new(data: T) -> Self {
         let lock = UnsafeCell::new(MaybeUninit::uninit());
         let mut attr = MaybeUninit::uninit();
         unsafe {
@@ -28,11 +30,9 @@ impl<T> RwLock<T> {
                 .r("attr_init")
                 .unwrap();
 
-            if inter_process {
-                pthread_rwlockattr_setpshared(attr.as_mut_ptr(), 1)
-                    .r("attr_setpshared")
-                    .unwrap();
-            }
+            pthread_rwlockattr_setpshared(attr.as_mut_ptr(), INTER_PROCESS)
+                .r("attr_setpshared")
+                .unwrap();
 
             pthread_rwlock_init((*lock.get()).as_mut_ptr(), attr.as_ptr())
                 .r("rwlock_init")

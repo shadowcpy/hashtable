@@ -61,7 +61,6 @@ impl HashtableClient {
             }
 
             // Safety: Shuts down the client, leaving the response stream
-
             let mut tail = is.tail.lock();
             tail.rx_cnt -= 1;
             let until = tail.pos;

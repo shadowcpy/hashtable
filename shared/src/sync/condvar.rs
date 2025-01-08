@@ -12,7 +12,7 @@ use libc::{
 
 use crate::{shm::ShmSafe, CheckOk};
 
-use super::MutexGuard;
+use super::{MutexGuard, INTER_PROCESS};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -21,7 +21,7 @@ pub struct Condvar {
 }
 
 impl Condvar {
-    pub fn new(inter_process: bool) -> Self {
+    pub fn new() -> Self {
         let inner = UnsafeCell::new(MaybeUninit::uninit());
         let mut attr = MaybeUninit::uninit();
         unsafe {
@@ -29,11 +29,9 @@ impl Condvar {
                 .r("attr_init")
                 .unwrap();
 
-            if inter_process {
-                pthread_condattr_setpshared(attr.as_mut_ptr(), 1)
-                    .r("attr_setpshared")
-                    .unwrap();
-            }
+            pthread_condattr_setpshared(attr.as_mut_ptr(), INTER_PROCESS)
+                .r("attr_setpshared")
+                .unwrap();
 
             pthread_cond_init((*inner.get()).as_mut_ptr(), attr.as_ptr())
                 .r("cond_init")

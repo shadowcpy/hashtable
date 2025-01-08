@@ -1,13 +1,8 @@
-use std::{
-    mem::MaybeUninit,
-    ptr,
-    sync::atomic::AtomicUsize,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{mem::MaybeUninit, ptr, sync::atomic::AtomicUsize};
 
 use anyhow::bail;
 use arrayvec::ArrayString;
-use libc::{__errno_location, c_int, sem_getvalue, sem_t, sem_timedwait, timespec};
+use libc::c_int;
 use sync::{Mutex, RwLock, Semaphore};
 
 use shm::{HeapArrayInit, ShmSafe};
@@ -22,6 +17,7 @@ pub const REQ_BUFFER_SIZE: usize = 2048;
 pub const RES_BUFFER_SIZE: usize = 2048;
 
 pub type KeyType = ArrayString<64>;
+pub type ValueType = u32;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -43,25 +39,21 @@ impl HashtableMemory {
             let space = &raw mut (*shm).request_frame.space;
             let queue = &raw mut (*shm).request_frame.queue;
 
-            ptr::write(count, Semaphore::new(0, true));
-            ptr::write(space, Semaphore::new(REQ_BUFFER_SIZE as u32, true));
-            Mutex::init_at(
-                queue,
-                |queue_inner| {
-                    let write = &raw mut (*queue_inner).write;
-                    let read = &raw mut (*queue_inner).read;
-                    let buffer = &raw mut (*queue_inner).buffer;
+            ptr::write(count, Semaphore::new(0));
+            ptr::write(space, Semaphore::new(REQ_BUFFER_SIZE as u32));
+            Mutex::init_at(queue, |queue_inner| {
+                let write = &raw mut (*queue_inner).write;
+                let read = &raw mut (*queue_inner).read;
+                let buffer = &raw mut (*queue_inner).buffer;
 
-                    ptr::write(write, 0);
-                    ptr::write(read, 0);
+                ptr::write(write, 0);
+                ptr::write(read, 0);
 
-                    // The relevant part: initialize the array on the heap
-                    // and move it to shared memory
-                    let init_buffer = HeapArrayInit::from_fn(|_| MaybeUninit::uninit());
-                    init_buffer.move_to(buffer);
-                },
-                true,
-            );
+                // The relevant part: initialize the array on the heap
+                // and move it to shared memory
+                let init_buffer = HeapArrayInit::from_fn(|_| MaybeUninit::uninit());
+                init_buffer.move_to(buffer);
+            });
         }
 
         // Initialize Response Frame
@@ -72,21 +64,18 @@ impl HashtableMemory {
             let tail = &raw mut (*shm).response_frame.tail;
 
             let init_buffer = HeapArrayInit::from_fn(|index| {
-                RwLock::new(
-                    ResponseSlot {
-                        rem: AtomicUsize::new(0),
-                        pos: (index as u64).wrapping_sub(RES_BUFFER_SIZE as u64),
-                        val: MaybeUninit::uninit(),
-                    },
-                    true,
-                )
+                RwLock::new(ResponseSlot {
+                    rem: AtomicUsize::new(0),
+                    pos: (index as u64).wrapping_sub(RES_BUFFER_SIZE as u64),
+                    val: MaybeUninit::uninit(),
+                })
             });
 
             init_buffer.move_to(buffer);
 
-            ptr::write(space, Semaphore::new(RES_BUFFER_SIZE as u32, true));
+            ptr::write(space, Semaphore::new(RES_BUFFER_SIZE as u32));
             ptr::write(num_tx, num_writers);
-            ptr::write(tail, Mutex::new(ResponseTail { pos: 0, rx_cnt: 0 }, true));
+            ptr::write(tail, Mutex::new(ResponseTail { pos: 0, rx_cnt: 0 }));
         }
     }
 }
@@ -118,7 +107,7 @@ pub struct RequestData {
 #[repr(C, u8)]
 #[derive(Debug, Copy, Clone)]
 pub enum RequestPayload {
-    Insert(KeyType, u32),
+    Insert(KeyType, ValueType),
     ReadBucket(KeyType),
     PrintHashmap,
     Delete(KeyType),
@@ -162,7 +151,7 @@ pub enum ResponsePayload {
     Inserted,
     BucketContent {
         len: usize,
-        data: [(KeyType, u32); 32],
+        data: [(KeyType, ValueType); 32],
     },
     Deleted,
     NotFound,
@@ -189,30 +178,5 @@ impl<T> CheckOk<T> for Result<T, c_int> {
             Ok(t) => Ok(t),
             Err(i) => bail!("Operation {op} failed: Code {i}"),
         }
-    }
-}
-
-pub unsafe fn sema_getvalue(sem: *mut sem_t) -> Result<c_int, c_int> {
-    let mut i: i32 = 0;
-    let ptr = &raw mut i;
-
-    let res = sem_getvalue(sem, ptr);
-    if res == 0 {
-        Ok(i)
-    } else {
-        Err(res)
-    }
-}
-
-pub unsafe fn sema_wait_timeout(sem: *mut sem_t, timeout: Duration) -> c_int {
-    let target = SystemTime::now().duration_since(UNIX_EPOCH).unwrap() + timeout;
-    let ts = timespec {
-        tv_sec: target.as_secs() as i64,
-        tv_nsec: target.subsec_nanos() as i64,
-    };
-    if sem_timedwait(sem, &raw const ts) != 0 {
-        *__errno_location()
-    } else {
-        0
     }
 }
