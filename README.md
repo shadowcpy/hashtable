@@ -87,12 +87,12 @@ Each client can request the server to execute the following commands:
 
 The accesses are synchronized via atomics, pthread mutexes and semaphores, with different mechanisms:
 - Request Queue (standard stealing MPMC queue):
-  - the client waits until an item is in the queue (semaphore `count`), locks the queue with a mutex
+  - the client thread waits until there is `space` in the queue,
+  locks the queue with a mutex and places its response at the `write` position (and incrementing the value).
+  Then it posts to `count` to wake up a reader.
+  - the worker thread waits until an item is in the queue (semaphore `count`), locks the queue
   and takes the item at index `read` out of it (and incrementing the value).
   Then it posts the semaphore `space`, signalling that the spot has been freed
-  - the worker thread waits until there is `space` in the queue,
-  locks the queue and places its response at the `write` position (and incrementing the value).
-  Then it posts to `count` to wake up a reader again.
 - Response Queue (MPMC broadcast queue):
   - the queue contains a global tail, protected by a mutex, for the writers, and slots (protected by rwlocks) in a ring buffer
   - worker write:

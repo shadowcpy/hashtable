@@ -43,7 +43,7 @@ Benchmark 1: target/benchmark/client 100 10
 To evaluate this further, more perf data was collected from after the optimization:
 ![Full Flamegraph](flamegraph_full_postop.png)
 
-It can be seen that the communication efforts to and from the clients still consume the majority of cycles (~65% combined for `is_pop_item` + `os_push_item`))
+It can be seen that the communication efforts to and from the clients still consume the majority of cycles (~65% combined for `is_pop_item` + `os_push_item`)
 , but the share consumed by HashTable operations has risen to over 20% (from ~0.7% before):
 
 ![HashTable Flamegraph](flamegraph_hashtable_postop.png)
